@@ -97,4 +97,13 @@ pnpm deploy:prod -- --apply
 - `AGENT_DEMO_DEPLOY_USER`，默认 `root`。
 - `AGENT_DEMO_DOMAIN`，默认 `songuu.top`。
 
+secret 设置示例：
+
+```bash
+gh secret set AGENT_DEMO_SSH_PRIVATE_KEY --repo songuu/agent-demo < /path/to/deploy_key
+gh secret set AGENT_DEMO_DEPLOY_HOST --repo songuu/agent-demo --body "47.253.230.197"
+gh secret set AGENT_DEMO_DEPLOY_USER --repo songuu/agent-demo --body "root"
+gh secret set AGENT_DEMO_DOMAIN --repo songuu/agent-demo --body "songuu.top"
+```
+
 workflow 不复制远端发布逻辑；生产变更仍统一收敛在 `scripts/deploy-production.mjs`。

@@ -18,7 +18,10 @@ invariant_tests:
   - "pnpm test"
   - "pnpm build"
   - "pnpm apps:list"
-deferred: []
+deferred:
+  - item: "Configure GitHub secret AGENT_DEMO_SSH_PRIVATE_KEY in songuu/agent-demo"
+    reason: "First pushed workflow run failed at secret validation because the repository currently has no secrets"
+    deadline: "before first unattended production deploy"
 deadcode_until: []
 ---
 
@@ -86,8 +89,29 @@ Risks:
 
 ## Phase 4: Review
 
-Pending.
+Current findings:
+
+- P0: none.
+- P1: none.
+- P2: GitHub workflow 的真实生产执行依赖仓库 secret `AGENT_DEMO_SSH_PRIVATE_KEY`；当前 `songuu/agent-demo` secrets 为空，push run 已按预期 fail-fast。
+
+Verification:
+
+- `pnpm typecheck` -> pass.
+- `pnpm test` -> sandbox hit `spawn EPERM`; escalated rerun pass, 9/9.
+- `pnpm build` -> pass.
+- `pnpm apps:list` -> pass.
+- `pnpm deploy:prod -- --deploy-host root@47.253.230.197 --domain songuu.top --repository-url https://github.com/songuu/agent-demo.git --branch main` -> pass, dry-run only, no server mutation.
+- workflow snapshot check command -> pass, `snapshot-ok=8`.
+- `git diff --check` -> pass.
+- `gh run list --repo songuu/agent-demo --limit 5` -> run `28649539442` triggered by push and failed fast at `Validate required secrets` because `AGENT_DEMO_SSH_PRIVATE_KEY` is not configured.
+- `gh secret list --repo songuu/agent-demo` -> empty.
 
 ## Phase 5: Compound
 
-Pending.
+Learnings:
+
+- agent-demo production automation should call the existing deploy script instead of duplicating release, Nginx, and PM2 logic in YAML.
+- secret contract stays minimal: required SSH private key, optional host/user/domain defaults.
+
+Goal loop: iter n/a, until=n/a, goal-met=yes, decision=stop:met
