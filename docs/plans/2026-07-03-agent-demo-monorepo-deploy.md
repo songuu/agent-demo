@@ -6,7 +6,7 @@ created: "2026-07-03"
 updated: "2026-07-03"
 checkpoints: 0
 tasks_total: 6
-tasks_completed: 4
+tasks_completed: 5
 tags: [sprint, monorepo, deployment, agent-demo]
 aliases: ["agent-demo monorepo"]
 invariants:
@@ -84,8 +84,8 @@ Risks:
 - [x] T2: SPIFFE web demo 支持 `BASE_PATH`。
 - [x] T3: 部署模板和架构规则。
 - [x] T4: 本地验证 type/test/build/web routes。
-- [ ] T5: commit + push 到 `songuu/agent-demo`。
-- [ ] T6: 服务器部署 + agent-build 快捷入口 + public verification。
+- [x] T5: commit + push 到 `songuu/agent-demo`。
+- [ ] T6: 服务器部署 + agent-build 快捷入口 + public verification。（agent-build 代码已提交推送；生产部署待明确授权）
 
 ## Phase 4: Review
 
@@ -109,4 +109,10 @@ Verification so far:
 
 ## Phase 5: Compound
 
-待回填。
+Progress:
+
+- agent-demo monorepo 已提交并推送到 `songuu/agent-demo` main。
+- agent-build 快捷入口已提交并推送到 `songuu/agent` master。
+- 生产部署命令会修改 `/opt/agent-demo/current`、PM2 和 Nginx，因此需要用户明确授权后继续。
+
+Goal loop: iter n/a, until=n/a, goal-met=no, decision=continue:production-deploy-approval-required
