@@ -18,10 +18,7 @@ invariant_tests:
   - "pnpm test"
   - "pnpm build"
   - "pnpm apps:list"
-deferred:
-  - item: "Configure GitHub secret AGENT_DEMO_SSH_PRIVATE_KEY in songuu/agent-demo"
-    reason: "First pushed workflow run failed at secret validation because the repository currently has no secrets"
-    deadline: "before first unattended production deploy"
+deferred: []
 deadcode_until: []
 ---
 
@@ -93,7 +90,7 @@ Current findings:
 
 - P0: none.
 - P1: none.
-- P2: GitHub workflow 的真实生产执行依赖仓库 secret `AGENT_DEMO_SSH_PRIVATE_KEY`；当前 `songuu/agent-demo` secrets 为空，push run 已按预期 fail-fast。
+- P2: GitHub workflow 的真实生产执行依赖仓库 secret `AGENT_DEMO_SSH_PRIVATE_KEY`；secret 已配置，值不写入仓库或日志。
 
 Verification:
 
@@ -105,7 +102,9 @@ Verification:
 - workflow snapshot check command -> pass, `snapshot-ok=8`.
 - `git diff --check` -> pass.
 - `gh run list --repo songuu/agent-demo --limit 5` -> run `28649539442` triggered by push and failed fast at `Validate required secrets` because `AGENT_DEMO_SSH_PRIVATE_KEY` is not configured.
-- `gh secret list --repo songuu/agent-demo` -> empty.
+- `gh secret list --repo songuu/agent-demo` -> `AGENT_DEMO_SSH_PRIVATE_KEY`, `AGENT_DEMO_DEPLOY_HOST`, `AGENT_DEMO_DEPLOY_USER`, `AGENT_DEMO_DOMAIN` exist.
+- New deploy key fingerprint -> `SHA256:Pjc6mNZEL3bLmzEWFnOIINZ6dewkZYZKSRhGx/GKjc8`.
+- New deploy key SSH check -> `ok`.
 
 ## Phase 5: Compound
 

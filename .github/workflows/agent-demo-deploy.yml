@@ -113,6 +113,13 @@ jobs:
           printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/agent_demo_deploy_key
           chmod 600 ~/.ssh/agent_demo_deploy_key
           ssh-keyscan -T 10 -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host ${DEPLOY_HOST}
+            User ${DEPLOY_USER}
+            IdentityFile ~/.ssh/agent_demo_deploy_key
+            IdentitiesOnly yes
+          EOF
+          chmod 600 ~/.ssh/config
 
       - name: Deploy production
         run: |
