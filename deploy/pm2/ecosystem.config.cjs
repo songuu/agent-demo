@@ -10,7 +10,7 @@ module.exports = {
         HOST: "127.0.0.1",
         PORT: "5173",
         BASE_PATH: "/agent-demo/spiffe",
-        PUBLIC_URL: "https://songuu.com/agent-demo/spiffe/"
+        PUBLIC_URL: "https://songuu.top/agent-demo/spiffe/"
       }
     }
   ]
