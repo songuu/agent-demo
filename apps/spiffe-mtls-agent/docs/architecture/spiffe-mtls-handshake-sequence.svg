@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="950" viewBox="0 0 1600 950" role="img" aria-labelledby="title desc">
+  <title id="title">SPIFFE mTLS 握手时序图</title>
+  <desc id="desc">Agent A 调用 Agent B 时，双方通过 SPIFFE X.509-SVID 完成 mTLS 和授权。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#334155"/></marker>
+    <marker id="deny" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#dc2626"/></marker>
+    <style>
+      .bg{fill:#fff}.title{font:700 38px Arial,'Microsoft YaHei',sans-serif;fill:#0f172a}.actor{fill:#f8fafc;stroke:#334155;stroke-width:2}.actorText{font:700 18px Arial,'Microsoft YaHei',sans-serif;fill:#0f172a}.small{font:13px Arial,'Microsoft YaHei',sans-serif;fill:#475569}.step{font:15px Arial,'Microsoft YaHei',sans-serif;fill:#0f172a}.line{stroke:#94a3b8;stroke-width:2;stroke-dasharray:7 7}.flow{fill:none;stroke:#334155;stroke-width:2.5;marker-end:url(#arrow)}.flowRed{fill:none;stroke:#dc2626;stroke-width:2.5;marker-end:url(#deny)}.note{fill:#fffbeb;stroke:#d97706;stroke-width:2}.secure{fill:#fef2f2;stroke:#dc2626;stroke-width:2}.ok{fill:#f0fdf4;stroke:#16a34a;stroke-width:2}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="950"/>
+  <text class="title" x="800" y="58" text-anchor="middle">一次 Agent 调用如何完成 mTLS + 授权</text>
+
+  <g>
+    <rect class="actor" x="85" y="105" width="220" height="74" rx="10"/><text class="actorText" x="195" y="138" text-anchor="middle">Agent A Client</text><text class="small" x="195" y="162" text-anchor="middle">coordinator</text>
+    <rect class="actor" x="420" y="105" width="240" height="74" rx="10"/><text class="actorText" x="540" y="138" text-anchor="middle">SPIRE Agent</text><text class="small" x="540" y="162" text-anchor="middle">Workload API socket</text>
+    <rect class="actor" x="760" y="105" width="230" height="74" rx="10"/><text class="actorText" x="875" y="138" text-anchor="middle">Agent B Server</text><text class="small" x="875" y="162" text-anchor="middle">worker</text>
+    <rect class="actor" x="1095" y="105" width="230" height="74" rx="10"/><text class="actorText" x="1210" y="138" text-anchor="middle">PeerAuthorizer</text><text class="small" x="1210" y="162" text-anchor="middle">caller / target / action</text>
+    <rect class="actor" x="1390" y="105" width="150" height="74" rx="10"/><text class="actorText" x="1465" y="138" text-anchor="middle">Handler</text><text class="small" x="1465" y="162" text-anchor="middle">business</text>
+  </g>
+
+  <line class="line" x1="195" y1="180" x2="195" y2="850"/><line class="line" x1="540" y1="180" x2="540" y2="850"/><line class="line" x1="875" y1="180" x2="875" y2="850"/><line class="line" x1="1210" y1="180" x2="1210" y2="850"/><line class="line" x1="1465" y1="180" x2="1465" y2="850"/>
+
+  <path class="flow" d="M195 225H535"/><text class="step" x="220" y="215">1. FetchX509SVID: 拿自己的 cert/key/bundle</text>
+  <path class="flow" d="M540 275H200"/><text class="step" x="230" y="265">2. 返回 X.509-SVID + trust bundle</text>
+  <path class="flow" d="M875 325H545"/><text class="step" x="575" y="315">3. Server 也从 Workload API 取 SVID</text>
+  <path class="flow" d="M540 375H870"/><text class="step" x="575" y="365">4. Server 建 TLS SecureContext，requestCert=true</text>
+
+  <rect class="secure" x="145" y="425" width="780" height="72" rx="10"/>
+  <text class="step" x="165" y="455">5. Client 发起 HTTPS/gRPC mTLS：携带自己的 SVID，接收 server cert chain</text>
+  <text class="small" x="165" y="480">Client 校验证书链后，还必须检查 server URI SAN == TARGET_AGENT_SPIFFE_ID</text>
+  <path class="flow" d="M195 520H870"/>
+
+  <rect class="secure" x="790" y="560" width="500" height="72" rx="10"/>
+  <text class="step" x="810" y="590">6. Server TLS 校验 client cert chain</text>
+  <text class="small" x="810" y="615">再从 client certificate URI SAN 提取 peer SPIFFE ID</text>
+  <path class="flow" d="M875 650H1205"/><text class="step" x="900" y="642">7. assertAuthorized(peerId, targetId, action)</text>
+
+  <rect class="note" x="1015" y="685" width="420" height="72" rx="10"/>
+  <text class="step" x="1035" y="715">8. Policy 决定 allow / deny</text>
+  <text class="small" x="1035" y="740">TLS 证明身份；Policy 决定能不能调用</text>
+  <path class="flow" d="M1210 775H1460"/><text class="step" x="1240" y="765">9. allow 后进入业务 handler</text>
+  <path class="flowRed" d="M1210 815H900"/><text class="step" x="935" y="805" fill="#dc2626">deny: 返回 403，不进入 handler</text>
+
+  <rect class="ok" x="110" y="858" width="1380" height="54" rx="10"/>
+  <text class="step" x="130" y="891">成功条件：证书链可信 + server ID 匹配 + client ID 可提取 + caller/target/action 被 policy 允许。</text>
+</svg>

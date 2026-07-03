@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "defaultBasePath": "/agent-demo",
+  "apps": [
+    {
+      "id": "spiffe-mtls-agent",
+      "name": "SPIFFE mTLS Agent",
+      "workspace": "apps/spiffe-mtls-agent",
+      "description": "One-page interactive architecture demo for SPIFFE/SPIRE based Agent mTLS communication.",
+      "category": "security-architecture",
+      "local": {
+        "command": "pnpm demo:spiffe",
+        "url": "http://127.0.0.1:5173"
+      },
+      "deploy": {
+        "basePath": "/agent-demo/spiffe/",
+        "port": 5173,
+        "healthPath": "/healthz",
+        "startCommand": "pnpm --filter @agent-demo/spiffe-mtls-agent start:web"
+      },
+      "agentBuildShortcut": {
+        "title": "SPIFFE mTLS Agent",
+        "href": "/agent-demo/spiffe/",
+        "summary": "查看 Agent 双向认证、SVID、PeerPolicy、审计链路。"
+      }
+    }
+  ]
+}

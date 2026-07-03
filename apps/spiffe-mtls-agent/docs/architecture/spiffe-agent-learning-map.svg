@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">SPIFFE mTLS Agent 学习地图</title>
+  <desc id="desc">从概念、代码、运行、排错到扩展的学习路径。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#334155"/></marker>
+    <style>
+      .bg{fill:#fff}.title{font:700 38px Arial,'Microsoft YaHei',sans-serif;fill:#0f172a}.subtitle{font:16px Arial,'Microsoft YaHei',sans-serif;fill:#475569}.stepTitle{font:700 22px Arial,'Microsoft YaHei',sans-serif;fill:#0f172a}.text{font:15px Arial,'Microsoft YaHei',sans-serif;fill:#334155}.tiny{font:13px Arial,'Microsoft YaHei',sans-serif;fill:#475569}.panel{fill:#f8fafc;stroke:#cbd5e1;stroke-width:2}.blue{fill:#eff6ff;stroke:#2563eb}.green{fill:#f0fdf4;stroke:#16a34a}.amber{fill:#fffbeb;stroke:#d97706}.red{fill:#fef2f2;stroke:#dc2626}.purple{fill:#faf5ff;stroke:#7c3aed}.line{fill:none;stroke:#334155;stroke-width:3;marker-end:url(#arrow)}.dash{fill:none;stroke:#64748b;stroke-width:2;stroke-dasharray:8 6;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <text class="title" x="800" y="60" text-anchor="middle">SPIFFE mTLS Agent 学习地图</text>
+  <text class="subtitle" x="800" y="90" text-anchor="middle">目标：先理解身份模型，再跑通 demo，最后知道在哪里扩展和排错</text>
+
+  <rect class="panel blue" x="55" y="155" width="270" height="185" rx="14"/>
+  <text class="stepTitle" x="190" y="195" text-anchor="middle">1. 看懂身份</text>
+  <text class="text" x="85" y="235">Trust Domain</text>
+  <text class="text" x="85" y="263">SPIFFE ID</text>
+  <text class="text" x="85" y="291">X.509-SVID</text>
+  <text class="tiny" x="85" y="321">先记住：证书里带 URI SAN</text>
+
+  <rect class="panel green" x="375" y="155" width="270" height="185" rx="14"/>
+  <text class="stepTitle" x="510" y="195" text-anchor="middle">2. 找到代码入口</text>
+  <text class="text" x="405" y="235">src/runtime</text>
+  <text class="text" x="405" y="263">src/spiffe</text>
+  <text class="text" x="405" y="291">src/transport</text>
+  <text class="tiny" x="405" y="321">Runtime -> Identity -> Transport</text>
+
+  <rect class="panel amber" x="695" y="155" width="270" height="185" rx="14"/>
+  <text class="stepTitle" x="830" y="195" text-anchor="middle">3. 先跑无 SPIRE 检查</text>
+  <text class="text" x="725" y="235">pnpm install</text>
+  <text class="text" x="725" y="263">pnpm typecheck</text>
+  <text class="text" x="725" y="291">pnpm test</text>
+  <text class="tiny" x="725" y="321">验证纯逻辑和项目结构</text>
+
+  <rect class="panel red" x="1015" y="155" width="270" height="185" rx="14"/>
+  <text class="stepTitle" x="1150" y="195" text-anchor="middle">4. 接真实 SPIRE</text>
+  <text class="text" x="1045" y="235">注册 Workload Entry</text>
+  <text class="text" x="1045" y="263">启动 server</text>
+  <text class="text" x="1045" y="291">启动 client</text>
+  <text class="tiny" x="1045" y="321">验证真实 mTLS 握手</text>
+
+  <rect class="panel purple" x="1335" y="155" width="210" height="185" rx="14"/>
+  <text class="stepTitle" x="1440" y="195" text-anchor="middle">5. 排错扩展</text>
+  <text class="text" x="1365" y="235">socket</text>
+  <text class="text" x="1365" y="263">target ID</text>
+  <text class="text" x="1365" y="291">policy deny</text>
+  <text class="tiny" x="1365" y="321">再接 OPA / gRPC</text>
+
+  <path class="line" d="M325 247H370"/><path class="line" d="M645 247H690"/><path class="line" d="M965 247H1010"/><path class="line" d="M1285 247H1330"/>
+
+  <rect class="panel" x="80" y="440" width="1440" height="290" rx="16"/>
+  <text class="stepTitle" x="120" y="485">读者心智模型</text>
+  <text class="text" x="120" y="530">TLS 层回答：对方是谁？证书链是否被 trust bundle 信任？URI SAN 的 SPIFFE ID 是否等于期望目标？</text>
+  <text class="text" x="120" y="575">Policy 层回答：这个 caller 能否访问这个 target，并执行这个 action？</text>
+  <text class="text" x="120" y="620">Workload API 层回答：当前进程能否按 selector 拿到短期 SVID？SVID 轮换后运行时是否自动更新？</text>
+  <text class="text" x="120" y="665">Demo 层回答：项目中哪些文件负责身份、传输、授权、运行时配置？失败时看哪一层？</text>
+
+  <path class="dash" d="M300 440C340 380 410 350 510 340"/>
+  <path class="dash" d="M650 440C700 380 760 355 830 340"/>
+  <path class="dash" d="M1100 440C1130 390 1145 360 1150 340"/>
+
+  <text class="tiny" x="800" y="815" text-anchor="middle">推荐顺序：README -> beginner guide -> complete architecture image -> code map -> runbook -> tests</text>
+</svg>

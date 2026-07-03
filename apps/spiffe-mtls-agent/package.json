@@ -1,0 +1,25 @@
+{
+  "name": "@agent-demo/spiffe-mtls-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Project-level SPIFFE/SPIRE mTLS architecture app for agent-to-agent communication.",
+  "type": "commonjs",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/spiffe-id.test.ts test/peer-policy.test.ts test/web-demo.test.ts",
+    "start:server": "tsx spiffe-mtls-agent.ts server",
+    "start:client": "tsx spiffe-mtls-agent.ts client",
+    "demo:web": "tsx src/web/demo-server.ts",
+    "start:web": "node dist/src/web/demo-server.js"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.13.0",
+    "@grpc/proto-loader": "^0.7.15"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0"
+  }
+}

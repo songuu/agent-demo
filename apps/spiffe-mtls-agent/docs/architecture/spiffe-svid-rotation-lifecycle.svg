@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">SPIFFE SVID 轮换生命周期</title>
+  <desc id="desc">Workload API stream 推送新的 SVID 和 bundle，IdentitySource 更新 client agent 和 server secure context。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#334155"/></marker>
+    <style>
+      .bg{fill:#fff}.title{font:700 38px Arial,'Microsoft YaHei',sans-serif;fill:#0f172a}.box{fill:#f8fafc;stroke:#64748b;stroke-width:2}.stream{fill:#eff6ff;stroke:#2563eb;stroke-width:2}.cache{fill:#fffbeb;stroke:#d97706;stroke-width:2}.runtime{fill:#f0fdf4;stroke:#16a34a;stroke-width:2}.risk{fill:#fef2f2;stroke:#dc2626;stroke-width:2}.label{font:700 18px Arial,'Microsoft YaHei',sans-serif;fill:#0f172a}.text{font:15px Arial,'Microsoft YaHei',sans-serif;fill:#334155}.tiny{font:13px Arial,'Microsoft YaHei',sans-serif;fill:#475569}.flow{fill:none;stroke:#334155;stroke-width:2.7;marker-end:url(#arrow)}.dash{fill:none;stroke:#f97316;stroke-width:2.5;stroke-dasharray:8 6;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <text class="title" x="800" y="58" text-anchor="middle">SVID 轮换：为什么不能把证书写死</text>
+
+  <rect class="stream" x="80" y="140" width="300" height="135" rx="12"/>
+  <text class="label" x="230" y="180" text-anchor="middle">SPIRE Agent</text>
+  <text class="text" x="115" y="215">Workload API</text>
+  <text class="text" x="115" y="242">FetchX509SVID stream</text>
+
+  <rect class="stream" x="500" y="140" width="330" height="135" rx="12"/>
+  <text class="label" x="665" y="180" text-anchor="middle">WorkloadApiX509Source</text>
+  <text class="text" x="535" y="215">解析 SVID / private key / bundle</text>
+  <text class="text" x="535" y="242">发出 update event</text>
+
+  <rect class="cache" x="950" y="105" width="270" height="95" rx="12"/>
+  <text class="label" x="1085" y="142" text-anchor="middle">Material Cache</text>
+  <text class="text" x="985" y="170">current cert/key/ca</text>
+  <rect class="cache" x="950" y="235" width="270" height="95" rx="12"/>
+  <text class="label" x="1085" y="272" text-anchor="middle">Trust Bundle</text>
+  <text class="text" x="985" y="300">local + federated roots</text>
+
+  <rect class="runtime" x="1300" y="105" width="240" height="95" rx="12"/>
+  <text class="label" x="1420" y="142" text-anchor="middle">Client https.Agent</text>
+  <text class="text" x="1335" y="170">新请求用新 material</text>
+  <rect class="runtime" x="1300" y="235" width="240" height="95" rx="12"/>
+  <text class="label" x="1420" y="272" text-anchor="middle">Server SecureContext</text>
+  <text class="text" x="1335" y="300">setSecureContext()</text>
+
+  <path class="flow" d="M380 207H495"/><text class="tiny" x="405" y="195">stream message</text>
+  <path class="flow" d="M830 190H945"/><path class="flow" d="M830 230C875 275 895 282 945 282"/>
+  <path class="flow" d="M1220 152H1295"/><path class="flow" d="M1220 282H1295"/>
+
+  <rect class="box" x="120" y="430" width="1360" height="115" rx="14"/>
+  <text class="label" x="150" y="470">运行时行为</text>
+  <text class="text" x="150" y="505">1. Workload API stream 不断保持连接；当 SVID 接近过期或 bundle 改变时，SPIRE Agent 推送新材料。</text>
+  <text class="text" x="150" y="532">2. IdentitySource 更新内存缓存。Client 后续请求创建/使用新的 TLS material；Server 调用 setSecureContext 热更新。</text>
+
+  <rect class="risk" x="120" y="610" width="610" height="145" rx="14"/>
+  <text class="label" x="150" y="650" fill="#b91c1c">错误做法</text>
+  <text class="text" x="150" y="690">把 cert/key 写进 config 或镜像。</text>
+  <text class="text" x="150" y="720">进程启动后不处理 SVID update。</text>
+
+  <rect class="runtime" x="870" y="610" width="610" height="145" rx="14"/>
+  <text class="label" x="900" y="650" fill="#166534">正确做法</text>
+  <text class="text" x="900" y="690">只挂 Workload API socket，私钥只存在于运行时内存。</text>
+  <text class="text" x="900" y="720">所有 TLS 配置从 IdentitySource 获取，并响应 update。</text>
+
+  <path class="dash" d="M665 275C690 365 760 405 800 430"/>
+</svg>

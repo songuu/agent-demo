@@ -1,0 +1,22 @@
+{
+  "trustDomain": "example.org",
+  "agents": [
+    {
+      "name": "coordinator",
+      "spiffeId": "spiffe://example.org/agent/coordinator",
+      "canCall": ["spiffe://example.org/agent/worker"]
+    },
+    {
+      "name": "worker",
+      "spiffeId": "spiffe://example.org/agent/worker",
+      "canCall": []
+    }
+  ],
+  "rules": [
+    {
+      "sourceId": "spiffe://example.org/agent/coordinator",
+      "targetIds": ["spiffe://example.org/agent/worker"],
+      "actions": ["agent:http"]
+    }
+  ]
+}
