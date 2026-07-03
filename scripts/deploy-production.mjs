@@ -92,7 +92,17 @@ else
 fi
 nginx -s reload
 
-curl -fsS "http://127.0.0.1:$port$base_path/healthz"
+health_url="http://127.0.0.1:$port$base_path/healthz"
+for attempt in $(seq 1 30); do
+  if curl -fsS "$health_url"; then
+    break
+  fi
+  if [ "$attempt" = "30" ]; then
+    echo "health check failed after $attempt attempts: $health_url" >&2
+    exit 1
+  fi
+  sleep 1
+done
 curl -fsSI "https://$domain$base_path/"
 curl -fsSI "https://$domain$base_path/assets/spiffe-agent-mtls-complete-architecture.svg"
 echo "deployed=$release"

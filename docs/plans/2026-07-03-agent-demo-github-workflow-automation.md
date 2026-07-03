@@ -105,6 +105,11 @@ Verification:
 - `gh secret list --repo songuu/agent-demo` -> `AGENT_DEMO_SSH_PRIVATE_KEY`, `AGENT_DEMO_DEPLOY_HOST`, `AGENT_DEMO_DEPLOY_USER`, `AGENT_DEMO_DOMAIN` exist.
 - New deploy key fingerprint -> `SHA256:Pjc6mNZEL3bLmzEWFnOIINZ6dewkZYZKSRhGx/GKjc8`.
 - New deploy key SSH check -> `ok`.
+- `gh run watch 28650052030 --repo songuu/agent-demo --exit-status` -> secrets validation passed; deploy reached PM2/nginx, then failed on immediate local health curl because app was not listening yet.
+- Production post-failure check -> `http://127.0.0.1:5173/agent-demo/spiffe/healthz` ok, PM2 `agent-demo-spiffe` online, current release `/opt/agent-demo/releases/20260703090031`.
+- `scripts/deploy-production.mjs` health check now retries up to 30 seconds.
+- `node --check scripts/deploy-production.mjs` -> pass.
+- Retry-aware `pnpm deploy:prod -- --deploy-host root@47.253.230.197 --domain songuu.top --repository-url https://github.com/songuu/agent-demo.git --branch main` -> pass, dry-run only.
 
 ## Phase 5: Compound
 
