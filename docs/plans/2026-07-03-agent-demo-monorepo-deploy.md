@@ -1,12 +1,12 @@
 ---
 title: "Agent demo monorepo deploy integration"
 type: sprint
-status: in-progress
+status: complete
 created: "2026-07-03"
 updated: "2026-07-03"
 checkpoints: 0
 tasks_total: 6
-tasks_completed: 5
+tasks_completed: 6
 tags: [sprint, monorepo, deployment, agent-demo]
 aliases: ["agent-demo monorepo"]
 invariants:
@@ -85,14 +85,14 @@ Risks:
 - [x] T3: 部署模板和架构规则。
 - [x] T4: 本地验证 type/test/build/web routes。
 - [x] T5: commit + push 到 `songuu/agent-demo`。
-- [ ] T6: 服务器部署 + agent-build 快捷入口 + public verification。（agent-build 代码已提交推送；生产部署待明确授权）
+- [x] T6: 服务器部署 + agent-build 快捷入口 + public verification。
 
 ## Phase 4: Review
 
 Current findings:
 
 - P0: none after local type/test/build/http route verification.
-- P1: Windows sandbox refused deleting old untracked flat-layout copies; commit must explicitly stage monorepo target files only.
+- P1: Windows sandbox refused deleting old untracked flat-layout copies; they remain local-only and were not committed.
 
 Verification so far:
 
@@ -106,6 +106,19 @@ Verification so far:
   - `/agent-demo/spiffe/api/demo` -> 200
   - `/agent-demo/spiffe/healthz` -> 200
   - `/agent-demo/spiffe/assets/spiffe-agent-mtls-complete-architecture.svg` -> 200
+- Production deploy:
+  - `pnpm deploy:prod -- --apply` -> pass.
+  - Release path: `/opt/agent-demo/releases/20260703083507`.
+  - PM2: `agent-demo-spiffe` online.
+  - Public page: `https://songuu.top/agent-demo/spiffe/` -> 200.
+  - Public health: `https://songuu.top/agent-demo/spiffe/healthz` -> 200.
+  - Public asset: `https://songuu.top/agent-demo/spiffe/assets/spiffe-agent-mtls-complete-architecture.svg` -> 200.
+- agent-build entry deploy:
+  - `pnpm typecheck` -> pass.
+  - `pnpm site:build` -> pass.
+  - `pwsh scripts/deploy.ps1` -> pass.
+  - Public catalog: `https://songuu.top/agent-build/docs/agent-apps` -> 200.
+  - Production static output contains `agent-demo/spiffe` in home, catalog, navigation assets.
 
 ## Phase 5: Compound
 
@@ -113,6 +126,7 @@ Progress:
 
 - agent-demo monorepo 已提交并推送到 `songuu/agent-demo` main。
 - agent-build 快捷入口已提交并推送到 `songuu/agent` master。
-- 生产部署命令会修改 `/opt/agent-demo/current`、PM2 和 Nginx，因此需要用户明确授权后继续。
+- agent-demo 已部署到 agent-build 同一服务器，Nginx 以 `/agent-demo/spiffe/` 暴露。
+- agent-build 已重新部署，提供 `应用入口` 导航和 `应用目录` 页面，后续子应用可按 catalog/registry 模式扩展。
 
-Goal loop: iter n/a, until=n/a, goal-met=no, decision=continue:production-deploy-approval-required
+Goal loop: iter n/a, until=n/a, goal-met=yes, decision=stop:met
