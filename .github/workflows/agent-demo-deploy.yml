@@ -1,0 +1,139 @@
+name: Deploy Agent Demo
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: agent-demo-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# Node app deploy: quality gates -> SSH setup -> scripts/deploy-production.mjs --apply.
+# Reference shape: agent-build .github/workflows/agent-build-deploy.yml.
+# Required GH secret: AGENT_DEMO_SSH_PRIVATE_KEY.
+# Optional secrets with defaults: AGENT_DEMO_DEPLOY_HOST, AGENT_DEMO_DEPLOY_USER, AGENT_DEMO_DOMAIN.
+jobs:
+  build-and-deploy:
+    name: Build and deploy (agent-demo apps)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      NODE_VERSION: "22"
+      PNPM_VERSION: "10.12.4"
+      DEPLOY_HOST: ${{ secrets.AGENT_DEMO_DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.AGENT_DEMO_DEPLOY_USER }}
+      DOMAIN: ${{ secrets.AGENT_DEMO_DOMAIN }}
+      SSH_PRIVATE_KEY: ${{ secrets.AGENT_DEMO_SSH_PRIVATE_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set deployment defaults
+        run: |
+          set -euo pipefail
+          deploy_host="${DEPLOY_HOST:-47.253.230.197}"
+          deploy_user="${DEPLOY_USER:-root}"
+          domain="${DOMAIN:-songuu.top}"
+          deploy_branch="${GITHUB_REF_NAME:-main}"
+          repository_url="https://github.com/${GITHUB_REPOSITORY}.git"
+          echo "DEPLOY_HOST=${deploy_host}" >> "$GITHUB_ENV"
+          echo "DEPLOY_USER=${deploy_user}" >> "$GITHUB_ENV"
+          echo "DEPLOY_TARGET=${deploy_user}@${deploy_host}" >> "$GITHUB_ENV"
+          echo "DOMAIN=${domain}" >> "$GITHUB_ENV"
+          echo "DEPLOY_BRANCH=${deploy_branch}" >> "$GITHUB_ENV"
+          echo "REPOSITORY_URL=${repository_url}" >> "$GITHUB_ENV"
+          echo "BASE_PATH=/agent-demo/spiffe" >> "$GITHUB_ENV"
+          echo "PORT=5173" >> "$GITHUB_ENV"
+
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          if [ -z "${SSH_PRIVATE_KEY}" ]; then
+            echo "::error::Missing required GitHub secret AGENT_DEMO_SSH_PRIVATE_KEY"
+            exit 1
+          fi
+
+      - name: Enable pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run quality gates
+        run: |
+          set -euo pipefail
+          pnpm typecheck
+          pnpm test
+          pnpm build
+          pnpm apps:list
+
+      - name: Build self-check
+        run: |
+          set -euo pipefail
+          BASE_PATH="${BASE_PATH}" PORT="${PORT}" node - <<'NODE'
+          const demo = require("./apps/spiffe-mtls-agent/dist/src/web/demo-model.js");
+          const snapshot = demo.getDemoSnapshot("127.0.0.1", Number(process.env.PORT), process.env.BASE_PATH);
+          if (snapshot.basePath !== process.env.BASE_PATH) {
+            throw new Error(`basePath mismatch: ${snapshot.basePath}`);
+          }
+          if (snapshot.steps.length !== 8) {
+            throw new Error(`expected 8 demo steps, got ${snapshot.steps.length}`);
+          }
+          console.log(`snapshot-ok=${snapshot.steps.length}`);
+          NODE
+
+      - name: Deploy dry run
+        run: |
+          set -euo pipefail
+          pnpm deploy:prod -- \
+            --deploy-host "${DEPLOY_TARGET}" \
+            --domain "${DOMAIN}" \
+            --repository-url "${REPOSITORY_URL}" \
+            --branch "${DEPLOY_BRANCH}"
+      - name: Configure SSH
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > ~/.ssh/agent_demo_deploy_key
+          chmod 600 ~/.ssh/agent_demo_deploy_key
+          ssh-keyscan -T 10 -H "${DEPLOY_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Deploy production
+        run: |
+          set -euo pipefail
+          pnpm deploy:prod -- \
+            --apply \
+            --deploy-host "${DEPLOY_TARGET}" \
+            --domain "${DOMAIN}" \
+            --repository-url "${REPOSITORY_URL}" \
+            --branch "${DEPLOY_BRANCH}"
+
+      - name: Verify production
+        run: |
+          set -euo pipefail
+          health_json="$(ssh -i ~/.ssh/agent_demo_deploy_key -o BatchMode=yes "${DEPLOY_TARGET}" "curl -fsS http://127.0.0.1:${PORT}${BASE_PATH}/healthz")"
+          echo "${health_json}"
+          echo "${health_json}" | grep -q '"ok": true'
+
+          for path in "${BASE_PATH}/" "${BASE_PATH}/assets/spiffe-agent-mtls-complete-architecture.svg"; do
+            code="$(curl -k -L -s -o /dev/null -w '%{http_code}' "https://${DOMAIN}${path}")"
+            echo "public https://${DOMAIN}${path} -> ${code}"
+            test "${code}" = "200"
+          done
+          echo "agent-demo production verified"

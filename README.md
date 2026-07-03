@@ -82,3 +82,19 @@ pnpm deploy:prod -- --apply
 ```
 
 脚本会读取 `app-registry.json`，创建 `/opt/agent-demo/releases/<timestamp>`，构建 `apps/spiffe-mtls-agent`，切换 `/opt/agent-demo/current`，启动 PM2 `agent-demo-spiffe`，并把宿主 Nginx 接到 `/agent-demo/spiffe/`。默认只打印远端脚本，不会写服务器。
+
+## GitHub Actions 自动部署
+
+`.github/workflows/agent-demo-deploy.yml` 参考 agent-build 的生产 workflow：push 到 `main` 或手动 `workflow_dispatch` 后，先执行 `pnpm install --frozen-lockfile`、`pnpm typecheck`、`pnpm test`、`pnpm build`、`pnpm apps:list`，再复用 `scripts/deploy-production.mjs --apply` 发布生产。
+
+必需 secret：
+
+- `AGENT_DEMO_SSH_PRIVATE_KEY`：连接生产服务器的 SSH 私钥。
+
+可选 secret：
+
+- `AGENT_DEMO_DEPLOY_HOST`，默认 `47.253.230.197`。
+- `AGENT_DEMO_DEPLOY_USER`，默认 `root`。
+- `AGENT_DEMO_DOMAIN`，默认 `songuu.top`。
+
+workflow 不复制远端发布逻辑；生产变更仍统一收敛在 `scripts/deploy-production.mjs`。

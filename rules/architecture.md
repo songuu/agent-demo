@@ -22,3 +22,9 @@
 - 每个可部署子应用必须在 `app-registry.json` 声明 `workspace`、`deploy.basePath`、`deploy.port`、`deploy.healthPath` 和 `agentBuildShortcut`。
 - 生产路由统一走宿主 Nginx `/agent-demo/<app>/` 前缀，Node app 必须支持 `BASE_PATH`，页面资产和 API 不能写死根路径。
 - agent-build 只消费 shortcut 元数据并渲染入口；不能把某个子应用的路径硬编码成唯一特殊入口。
+
+## Production automation
+
+- GitHub Actions 只做 CI/CD 编排：checkout、pnpm install、quality gates、SSH setup、调用 `scripts/deploy-production.mjs --apply`。
+- 远端发布细节必须留在 `scripts/deploy-production.mjs`，避免 workflow 和本地部署脚本出现两套 Nginx/PM2/release 逻辑。
+- 生产 workflow secret 命名使用 `AGENT_DEMO_*` 前缀，必需项只有 SSH 私钥；host/user/domain 允许默认值。
