@@ -11,6 +11,7 @@
     "build": "pnpm -r build",
     "apps:list": "node scripts/list-apps.mjs",
     "demo:spiffe": "pnpm --filter @agent-demo/spiffe-mtls-agent demo:web",
-    "start:spiffe": "pnpm --filter @agent-demo/spiffe-mtls-agent start:web"
+    "start:spiffe": "pnpm --filter @agent-demo/spiffe-mtls-agent start:web",
+    "deploy:prod": "node scripts/deploy-production.mjs"
   }
 }

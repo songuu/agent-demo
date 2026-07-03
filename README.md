@@ -66,3 +66,19 @@ pnpm demo:spiffe
 - `deploy/pm2/ecosystem.config.cjs`
 - `deploy/nginx/agent-demo-spiffe.conf`
 - `deploy/README.md`
+
+## 生产部署脚本
+
+默认 dry-run，不改服务器：
+
+```bash
+pnpm deploy:prod
+```
+
+真正部署必须显式授权执行：
+
+```bash
+pnpm deploy:prod -- --apply
+```
+
+脚本会读取 `app-registry.json`，创建 `/opt/agent-demo/releases/<timestamp>`，构建 `apps/spiffe-mtls-agent`，切换 `/opt/agent-demo/current`，启动 PM2 `agent-demo-spiffe`，并把宿主 Nginx 接到 `/agent-demo/spiffe/`。默认只打印远端脚本，不会写服务器。
