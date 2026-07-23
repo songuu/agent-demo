@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="950" viewBox="0 0 1600 950" role="img" aria-labelledby="title desc">
+  <title id="title">SPIFFE mTLS Agent 代码地图</title>
+  <desc id="desc">源码模块与一次请求的对应关系。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#334155"/></marker>
+    <style>
+      .bg{fill:#fff}.title{font:700 38px Arial,'Microsoft YaHei',sans-serif;fill:#0f172a}.panel{fill:#f8fafc;stroke:#cbd5e1;stroke-width:2}.runtime{fill:#eff6ff;stroke:#2563eb}.identity{fill:#fffbeb;stroke:#d97706}.transport{fill:#f0fdf4;stroke:#16a34a}.policy{fill:#fef2f2;stroke:#dc2626}.test{fill:#faf5ff;stroke:#7c3aed}.label{font:700 18px Arial,'Microsoft YaHei',sans-serif;fill:#0f172a}.text{font:15px Consolas,'Microsoft YaHei',monospace;fill:#334155}.desc{font:14px Arial,'Microsoft YaHei',sans-serif;fill:#475569}.flow{fill:none;stroke:#334155;stroke-width:2.5;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect class="bg" width="1600" height="950"/>
+  <text class="title" x="800" y="58" text-anchor="middle">代码地图：每一层负责什么</text>
+
+  <rect class="panel runtime" x="70" y="125" width="310" height="230" rx="14"/>
+  <text class="label" x="225" y="165" text-anchor="middle">Runtime</text>
+  <text class="text" x="100" y="205">src/cli.ts</text>
+  <text class="desc" x="100" y="228">server/client 命令入口</text>
+  <text class="text" x="100" y="265">src/runtime/config.ts</text>
+  <text class="desc" x="100" y="288">读取 env，校验 SPIFFE ID</text>
+  <text class="text" x="100" y="325">src/runtime/run-agent.ts</text>
+  <text class="desc" x="100" y="348">组装 source / transport / policy</text>
+
+  <rect class="panel identity" x="475" y="125" width="350" height="230" rx="14"/>
+  <text class="label" x="650" y="165" text-anchor="middle">Identity</text>
+  <text class="text" x="505" y="205">src/spiffe/workload-x509-source.ts</text>
+  <text class="desc" x="505" y="228">连接 Workload API，缓存 SVID</text>
+  <text class="text" x="505" y="265">src/spiffe/peer-certificate.ts</text>
+  <text class="desc" x="505" y="288">从 URI SAN 提取 peer SPIFFE ID</text>
+  <text class="text" x="505" y="325">src/spiffe/spiffe-id.ts</text>
+  <text class="desc" x="505" y="348">ID 校验、集合解析</text>
+
+  <rect class="panel transport" x="920" y="125" width="310" height="230" rx="14"/>
+  <text class="label" x="1075" y="165" text-anchor="middle">Transport</text>
+  <text class="text" x="950" y="205">spiffe-http-client.ts</text>
+  <text class="desc" x="950" y="228">带 expected server ID 发请求</text>
+  <text class="text" x="950" y="265">spiffe-http-server.ts</text>
+  <text class="desc" x="950" y="288">requestCert + authz before handler</text>
+  <text class="text" x="950" y="325">src/types.ts</text>
+  <text class="desc" x="950" y="348">request context / TLS material</text>
+
+  <rect class="panel policy" x="1325" y="125" width="220" height="230" rx="14"/>
+  <text class="label" x="1435" y="165" text-anchor="middle">Policy</text>
+  <text class="text" x="1350" y="205">peer-policy.ts</text>
+  <text class="desc" x="1350" y="232">caller</text>
+  <text class="desc" x="1350" y="258">target</text>
+  <text class="desc" x="1350" y="284">action</text>
+  <text class="desc" x="1350" y="325">默认静态 allow-list</text>
+
+  <path class="flow" d="M380 240H470"/><path class="flow" d="M825 240H915"/><path class="flow" d="M1230 240H1320"/>
+
+  <rect class="panel" x="110" y="455" width="1380" height="230" rx="16"/>
+  <text class="label" x="145" y="495">一次请求在代码里的路径</text>
+  <text class="desc" x="145" y="535">1. runClientFromEnv() 读取 AGENT_SPIFFE_ID、TARGET_AGENT_URL、TARGET_AGENT_SPIFFE_ID。</text>
+  <text class="desc" x="145" y="570">2. WorkloadApiX509Source.start() 通过 socket 拿到 client SVID 和 trust bundle。</text>
+  <text class="desc" x="145" y="605">3. SpiffeMtlsAgentClient.requestJson() 用 source.createHttpsAgent(expectedServerId) 发起 mTLS。</text>
+  <text class="desc" x="145" y="640">4. Server 先通过 TLS 校验 client cert，再 extractSpiffeIdFromPeerCertificate()。</text>
+  <text class="desc" x="145" y="675">5. PeerAuthorizer.assertAuthorized() 通过后，handler 才拿到 context.peer.spiffeId。</text>
+
+  <rect class="panel test" x="110" y="755" width="650" height="105" rx="14"/>
+  <text class="label" x="145" y="795" fill="#6d28d9">当前可本地验证</text>
+  <text class="text" x="145" y="830">pnpm typecheck</text>
+  <text class="text" x="365" y="830">pnpm test</text>
+
+  <rect class="panel policy" x="850" y="755" width="640" height="105" rx="14"/>
+  <text class="label" x="885" y="795" fill="#b91c1c">需要真实 SPIRE 才能验证</text>
+  <text class="desc" x="885" y="830">Workload API socket、真实 X.509-SVID、真实 TLS 握手、SVID 轮换。</text>
+</svg>

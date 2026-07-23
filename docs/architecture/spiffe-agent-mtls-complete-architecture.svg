@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1150" viewBox="0 0 1800 1150" role="img" aria-labelledby="title desc">
+  <title id="title">SPIFFE mTLS Agent 完整架构图</title>
+  <desc id="desc">项目级 SPIFFE mTLS Agent 通信架构，覆盖 SPIRE 信任平面、Workload API、身份层、双向 TLS、授权策略、观测审计和部署输入。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#15803d"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#dc2626"/>
+    </marker>
+    <style>
+      .bg { fill: #ffffff; }
+      .title { font: 700 38px Arial, 'Microsoft YaHei', sans-serif; fill: #0f172a; }
+      .section-title { font: 700 22px Arial, 'Microsoft YaHei', sans-serif; }
+      .label { font: 700 16px Arial, 'Microsoft YaHei', sans-serif; fill: #0f172a; }
+      .small { font: 13px Arial, 'Microsoft YaHei', sans-serif; fill: #334155; }
+      .tiny { font: 11px Arial, 'Microsoft YaHei', sans-serif; fill: #475569; }
+      .lane { font: 700 16px Arial, 'Microsoft YaHei', sans-serif; }
+      .trust-panel { fill: #eff6ff; stroke: #2563eb; stroke-width: 2; }
+      .node-panel { fill: #f0fdf4; stroke: #15803d; stroke-width: 2; }
+      .agent-panel { fill: #fff7ed; stroke: #d97706; stroke-width: 2; }
+      .observe-panel { fill: #faf5ff; stroke: #7c3aed; stroke-width: 2; }
+      .box { fill: #ffffff; stroke: #64748b; stroke-width: 1.5; }
+      .trust-box { fill: #f8fbff; stroke: #2563eb; stroke-width: 2; }
+      .node-box { fill: #f7fff9; stroke: #15803d; stroke-width: 2; }
+      .identity-box { fill: #fffdf2; stroke: #d97706; stroke-width: 2; }
+      .security-box { fill: #fff7f7; stroke: #dc2626; stroke-width: 2; }
+      .observe-box { fill: #ffffff; stroke: #7c3aed; stroke-width: 1.8; }
+      .data-flow { fill: none; stroke: #334155; stroke-width: 2.5; marker-end: url(#arrow); }
+      .control-flow { fill: none; stroke: #2563eb; stroke-width: 2.2; stroke-dasharray: 8 6; marker-end: url(#arrowBlue); }
+      .local-flow { fill: none; stroke: #15803d; stroke-width: 2.5; marker-end: url(#arrowGreen); }
+      .deny-flow { fill: none; stroke: #dc2626; stroke-width: 2.2; marker-end: url(#arrowRed); }
+      .rotation-flow { fill: none; stroke: #f97316; stroke-width: 2; stroke-dasharray: 7 6; marker-end: url(#arrow); }
+      .divider { stroke: #cbd5e1; stroke-width: 1.5; stroke-dasharray: 8 6; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1800" height="1150"/>
+  <text class="title" x="900" y="48" text-anchor="middle">SPIFFE mTLS Agent 完整架构</text>
+
+  <!-- Trust plane -->
+  <rect class="trust-panel" x="40" y="75" width="1510" height="190" rx="10"/>
+  <text class="section-title" x="65" y="108" fill="#1d4ed8">Trust Plane / Control Plane</text>
+
+  <g id="trust-boxes">
+    <rect class="trust-box" x="70" y="125" width="205" height="105" rx="8"/>
+    <text class="label" x="172" y="153" text-anchor="middle" fill="#1d4ed8">SPIRE Server</text>
+    <text class="small" x="172" y="178" text-anchor="middle">控制信任域、签发 SVID</text>
+    <text class="small" x="172" y="198" text-anchor="middle">发布 trust bundle</text>
+
+    <rect class="trust-box" x="325" y="125" width="220" height="105" rx="8"/>
+    <text class="label" x="435" y="153" text-anchor="middle" fill="#1d4ed8">Registration API</text>
+    <text class="small" x="435" y="178" text-anchor="middle">Workload Entry</text>
+    <text class="small" x="435" y="198" text-anchor="middle">SPIFFE ID 绑定</text>
+
+    <rect class="trust-box" x="595" y="125" width="200" height="105" rx="8"/>
+    <text class="label" x="695" y="153" text-anchor="middle" fill="#1d4ed8">Node Attestor</text>
+    <text class="small" x="695" y="178" text-anchor="middle">节点证明</text>
+    <text class="small" x="695" y="198" text-anchor="middle">k8s_psat / VM / AWS</text>
+
+    <rect class="trust-box" x="845" y="125" width="220" height="105" rx="8"/>
+    <text class="label" x="955" y="153" text-anchor="middle" fill="#1d4ed8">Workload Selectors</text>
+    <text class="small" x="955" y="178" text-anchor="middle">namespace / serviceAccount</text>
+    <text class="small" x="955" y="198" text-anchor="middle">process / uid</text>
+
+    <rect class="trust-box" x="1115" y="125" width="210" height="105" rx="8"/>
+    <text class="label" x="1220" y="153" text-anchor="middle" fill="#1d4ed8">X.509-SVID Issuer</text>
+    <text class="small" x="1220" y="178" text-anchor="middle">签发短期证书</text>
+    <text class="small" x="1220" y="198" text-anchor="middle">leaf + chain</text>
+
+    <rect class="trust-box" x="1375" y="125" width="145" height="105" rx="8"/>
+    <text class="label" x="1448" y="153" text-anchor="middle" fill="#1d4ed8">Bundle</text>
+    <text class="small" x="1448" y="178" text-anchor="middle">本域 CA roots</text>
+    <text class="small" x="1448" y="198" text-anchor="middle">Federation</text>
+  </g>
+
+  <!-- Node plane -->
+  <rect class="node-panel" x="40" y="295" width="1510" height="165" rx="10"/>
+  <text class="section-title" x="65" y="329" fill="#166534">Node / Kubernetes Worker</text>
+  <rect class="node-box" x="430" y="320" width="745" height="72" rx="8"/>
+  <text class="label" x="803" y="348" text-anchor="middle" fill="#166534">SPIRE Agent</text>
+  <text class="small" x="803" y="373" text-anchor="middle">完成 node attestation，拉取 entries / bundle，给本机 workload 暴露 Workload API</text>
+  <rect class="node-box" x="600" y="410" width="405" height="36" rx="7"/>
+  <text class="label" x="803" y="434" text-anchor="middle" fill="#166534">Workload API Socket: unix:///run/spire/sockets/agent.sock</text>
+
+  <!-- Agents -->
+  <rect class="agent-panel" x="40" y="500" width="710" height="515" rx="10"/>
+  <text class="section-title" x="395" y="533" text-anchor="middle" fill="#a16207">Agent A: coordinator</text>
+
+  <text class="lane" x="75" y="585" fill="#a16207">Config</text>
+  <line class="divider" x1="60" y1="602" x2="730" y2="602"/>
+  <rect class="identity-box" x="165" y="558" width="535" height="45" rx="7"/>
+  <text class="label" x="432" y="585" text-anchor="middle">Runtime Config / AGENT_SPIFFE_ID / TARGET_AGENT_SPIFFE_ID</text>
+
+  <text class="lane" x="75" y="665" fill="#a16207">Identity</text>
+  <line class="divider" x1="60" y1="682" x2="730" y2="682"/>
+  <rect class="identity-box" x="165" y="628" width="535" height="48" rx="7"/>
+  <text class="label" x="432" y="657" text-anchor="middle">WorkloadApiX509Source</text>
+  <rect class="identity-box" x="165" y="700" width="250" height="58" rx="7"/>
+  <text class="label" x="290" y="724" text-anchor="middle">X.509-SVID Cache</text>
+  <text class="small" x="290" y="745" text-anchor="middle">cert + private key + NotAfter</text>
+  <rect class="identity-box" x="450" y="700" width="250" height="58" rx="7"/>
+  <text class="label" x="575" y="724" text-anchor="middle">Trust Bundle Cache</text>
+  <text class="small" x="575" y="745" text-anchor="middle">roots + intermediates</text>
+
+  <text class="lane" x="75" y="820" fill="#a16207">TLS</text>
+  <line class="divider" x1="60" y1="835" x2="730" y2="835"/>
+  <rect class="identity-box" x="165" y="782" width="330" height="78" rx="7"/>
+  <text class="label" x="330" y="812" text-anchor="middle">SpiffeMtlsAgentClient</text>
+  <text class="small" x="330" y="834" text-anchor="middle">https.Agent + TLS SecureContext</text>
+  <rect class="identity-box" x="530" y="782" width="170" height="78" rx="7" stroke-dasharray="7 5"/>
+  <text class="small" x="615" y="812" text-anchor="middle">Rotation Update</text>
+  <text class="small" x="615" y="834" text-anchor="middle">SVID / bundle reload</text>
+
+  <text class="lane" x="75" y="925" fill="#b91c1c">Security</text>
+  <rect class="security-box" x="165" y="888" width="330" height="82" rx="7"/>
+  <text class="label" x="330" y="918" text-anchor="middle" fill="#b91c1c">Server SPIFFE ID Check</text>
+  <text class="small" x="330" y="942" text-anchor="middle">URI SAN == TARGET_AGENT_SPIFFE_ID</text>
+
+  <rect class="agent-panel" x="800" y="500" width="710" height="515" rx="10"/>
+  <text class="section-title" x="1155" y="533" text-anchor="middle" fill="#a16207">Agent B: worker</text>
+
+  <text class="lane" x="835" y="585" fill="#a16207">Config</text>
+  <line class="divider" x1="820" y1="602" x2="1490" y2="602"/>
+  <rect class="identity-box" x="925" y="558" width="535" height="45" rx="7"/>
+  <text class="label" x="1192" y="585" text-anchor="middle">Runtime Config / AGENT_SPIFFE_ID / ALLOWED_CLIENT_SPIFFE_IDS</text>
+
+  <text class="lane" x="835" y="665" fill="#a16207">Identity</text>
+  <line class="divider" x1="820" y1="682" x2="1490" y2="682"/>
+  <rect class="identity-box" x="925" y="628" width="535" height="48" rx="7"/>
+  <text class="label" x="1192" y="657" text-anchor="middle">WorkloadApiX509Source</text>
+  <rect class="identity-box" x="925" y="700" width="250" height="58" rx="7"/>
+  <text class="label" x="1050" y="724" text-anchor="middle">X.509-SVID Cache</text>
+  <text class="small" x="1050" y="745" text-anchor="middle">server cert + private key</text>
+  <rect class="identity-box" x="1210" y="700" width="250" height="58" rx="7"/>
+  <text class="label" x="1335" y="724" text-anchor="middle">Trust Bundle Cache</text>
+  <text class="small" x="1335" y="745" text-anchor="middle">client CA roots</text>
+
+  <text class="lane" x="835" y="820" fill="#a16207">TLS</text>
+  <line class="divider" x1="820" y1="835" x2="1490" y2="835"/>
+  <rect class="identity-box" x="925" y="782" width="330" height="78" rx="7"/>
+  <text class="label" x="1090" y="812" text-anchor="middle">SpiffeMtlsAgentServer</text>
+  <text class="small" x="1090" y="834" text-anchor="middle">requestCert: true / rejectUnauthorized: true</text>
+  <rect class="identity-box" x="1290" y="782" width="170" height="78" rx="7" stroke-dasharray="7 5"/>
+  <text class="small" x="1375" y="812" text-anchor="middle">Rotation Update</text>
+  <text class="small" x="1375" y="834" text-anchor="middle">setSecureContext</text>
+
+  <text class="lane" x="835" y="925" fill="#b91c1c">Security</text>
+  <rect class="security-box" x="900" y="888" width="125" height="72" rx="7"/>
+  <text class="small" x="962" y="918" text-anchor="middle" fill="#b91c1c">Client Cert</text>
+  <text class="tiny" x="962" y="940" text-anchor="middle">mTLS peer</text>
+  <rect class="security-box" x="1048" y="888" width="150" height="72" rx="7"/>
+  <text class="small" x="1123" y="912" text-anchor="middle" fill="#b91c1c">Client SPIFFE ID</text>
+  <text class="tiny" x="1123" y="934" text-anchor="middle">URI SAN extraction</text>
+  <rect class="security-box" x="1222" y="888" width="135" height="72" rx="7"/>
+  <text class="small" x="1289" y="912" text-anchor="middle" fill="#b91c1c">PeerAuthorizer</text>
+  <text class="tiny" x="1289" y="934" text-anchor="middle">Policy allow/deny</text>
+  <rect class="security-box" x="1382" y="888" width="105" height="72" rx="7"/>
+  <text class="small" x="1434" y="912" text-anchor="middle" fill="#b91c1c">Handler</text>
+  <text class="tiny" x="1434" y="934" text-anchor="middle">business RPC</text>
+
+  <!-- Observability -->
+  <rect class="observe-panel" x="1565" y="500" width="195" height="515" rx="10"/>
+  <text class="section-title" x="1662" y="533" text-anchor="middle" fill="#6d28d9">Observability</text>
+  <rect class="observe-box" x="1585" y="560" width="155" height="72" rx="8"/>
+  <text class="label" x="1662" y="590" text-anchor="middle" fill="#6d28d9">Logs</text>
+  <text class="small" x="1662" y="612" text-anchor="middle">authn / authz events</text>
+  <rect class="observe-box" x="1585" y="655" width="155" height="72" rx="8"/>
+  <text class="label" x="1662" y="685" text-anchor="middle" fill="#6d28d9">Metrics</text>
+  <text class="small" x="1662" y="707" text-anchor="middle">deny / expiry / errors</text>
+  <rect class="observe-box" x="1585" y="750" width="155" height="72" rx="8"/>
+  <text class="label" x="1662" y="780" text-anchor="middle" fill="#6d28d9">Traces</text>
+  <text class="small" x="1662" y="802" text-anchor="middle">caller -> target</text>
+  <rect class="observe-box" x="1585" y="845" width="155" height="135" rx="8"/>
+  <text class="label" x="1662" y="872" text-anchor="middle" fill="#6d28d9">Audit Fields</text>
+  <text class="tiny" x="1610" y="900">localSpiffeId</text>
+  <text class="tiny" x="1610" y="920">peerSpiffeId</text>
+  <text class="tiny" x="1610" y="940">action / decision</text>
+  <text class="tiny" x="1610" y="960">certNotAfter</text>
+
+  <!-- Flows -->
+  <path class="control-flow" d="M 172 230 L 172 285 L 802 285 L 802 318"/>
+  <path class="control-flow" d="M 1220 230 L 1220 285 L 900 285 L 900 318"/>
+  <path class="control-flow" d="M 1448 230 L 1448 280 L 980 280 L 980 318"/>
+
+  <path class="local-flow" d="M 803 446 L 803 480 L 432 480 L 432 626"/>
+  <path class="local-flow" d="M 803 446 L 803 480 L 1192 480 L 1192 626"/>
+
+  <path class="data-flow" d="M 495 820 L 760 820 L 760 930 L 898 930"/>
+  <path class="data-flow" d="M 750 740 L 800 740"/>
+  <text class="label" x="775" y="718" text-anchor="middle">HTTPS/gRPC mTLS</text>
+  <text class="small" x="775" y="742" text-anchor="middle">mutual cert validation</text>
+
+  <path class="data-flow" d="M 1025 924 L 1046 924"/>
+  <path class="data-flow" d="M 1198 924 L 1220 924"/>
+  <path class="data-flow" d="M 1357 924 L 1380 924"/>
+  <path class="deny-flow" d="M 1289 960 L 1289 995 L 1434 995 L 1434 962"/>
+  <text class="small" x="1380" y="990" fill="#dc2626">DENY: reject / close</text>
+
+  <path class="rotation-flow" d="M 432 676 L 432 695"/>
+  <path class="rotation-flow" d="M 432 676 L 575 676 L 575 695"/>
+  <path class="rotation-flow" d="M 575 758 L 615 758 L 615 780"/>
+  <path class="rotation-flow" d="M 1192 676 L 1192 695"/>
+  <path class="rotation-flow" d="M 1192 676 L 1335 676 L 1335 695"/>
+  <path class="rotation-flow" d="M 1335 758 L 1375 758 L 1375 780"/>
+
+  <path class="data-flow" d="M 1434 888 L 1434 540 L 1582 590"/>
+  <path class="data-flow" d="M 1289 888 L 1289 700 L 1582 690"/>
+  <path class="data-flow" d="M 330 970 L 330 1050 L 1582 785"/>
+
+  <!-- Deployment and legend -->
+  <rect class="box" x="40" y="1042" width="1000" height="66" rx="8"/>
+  <text class="label" x="65" y="1070">Deployment Inputs:</text>
+  <text class="small" x="235" y="1070">Kubernetes ServiceAccount -> SPIRE Workload Entry -> Runtime Env Vars -> config/agent-policy.example.json</text>
+  <text class="tiny" x="65" y="1096">身份验证: certificate chain + URI SAN SPIFFE ID. 授权: caller / target / action policy. 私钥不进入项目配置。</text>
+
+  <rect class="box" x="1070" y="1042" width="690" height="66" rx="8"/>
+  <line class="data-flow" x1="1100" y1="1064" x2="1160" y2="1064"/>
+  <text class="tiny" x="1175" y="1068">Data / Request Flow</text>
+  <line class="control-flow" x1="1340" y1="1064" x2="1400" y2="1064"/>
+  <text class="tiny" x="1415" y="1068">Control / Bundle</text>
+  <line class="rotation-flow" x1="1100" y1="1092" x2="1160" y2="1092"/>
+  <text class="tiny" x="1175" y="1096">Rotation / Update</text>
+  <line class="local-flow" x1="1340" y1="1092" x2="1400" y2="1092"/>
+  <text class="tiny" x="1415" y="1096">Local API Socket</text>
+</svg>
