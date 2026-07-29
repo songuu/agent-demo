@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-platform.example/schemas/operational-readiness-1.0.json",
+  "title": "Agent Platform operational release readiness",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_id",
+    "git_sha",
+    "image_digest",
+    "versions",
+    "training",
+    "rollback",
+    "observation",
+    "gates",
+    "evidence_store",
+    "generated_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "release_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "image_digest": {"$ref": "#/$defs/sha256"},
+    "versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_image_digest",
+        "workflow_code",
+        "sdk",
+        "model_route",
+        "contract_schema",
+        "alembic_revision"
+      ],
+      "properties": {
+        "base_image_digest": {"$ref": "#/$defs/sha256"},
+        "workflow_code": {"$ref": "#/$defs/version"},
+        "sdk": {"$ref": "#/$defs/version"},
+        "model_route": {"$ref": "#/$defs/version"},
+        "contract_schema": {"$ref": "#/$defs/version"},
+        "alembic_revision": {"$ref": "#/$defs/version"}
+      }
+    },
+    "training": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["records"],
+      "properties": {
+        "records": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["population", "owner", "completed_at", "evidence_uri"],
+            "properties": {
+              "population": {
+                "enum": ["business-users", "approvers", "on-call"]
+              },
+              "owner": {"type": "string", "minLength": 1},
+              "completed_at": {"$ref": "#/$defs/timestamp"},
+              "evidence_uri": {"$ref": "#/$defs/https_uri"}
+            }
+          }
+        }
+      }
+    },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner",
+        "owner_role",
+        "authenticated_at",
+        "authentication",
+        "acknowledged_at",
+        "previous_image_digest",
+        "previous_helm_revision",
+        "previous_git_sha",
+        "previous_tool_catalog_id",
+        "previous_tool_catalog_digest",
+        "database_compatibility_approved",
+        "runbook_version",
+        "evidence_uri"
+      ],
+      "properties": {
+        "owner": {"type": "string", "minLength": 1},
+        "owner_role": {"enum": ["sre", "incident-commander", "release-manager"]},
+        "authenticated_at": {"$ref": "#/$defs/timestamp"},
+        "authentication": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["assurance", "method"],
+          "properties": {
+            "assurance": {"const": "phishing-resistant"},
+            "method": {"enum": ["webauthn", "fido2-security-key", "piv"]}
+          }
+        },
+        "acknowledged_at": {"$ref": "#/$defs/timestamp"},
+        "previous_image_digest": {"$ref": "#/$defs/sha256"},
+        "previous_helm_revision": {"type": "integer", "minimum": 1},
+        "previous_git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "previous_tool_catalog_id": {"type": "string", "minLength": 1},
+        "previous_tool_catalog_digest": {"$ref": "#/$defs/sha256"},
+        "database_compatibility_approved": {"const": true},
+        "runbook_version": {"$ref": "#/$defs/version"},
+        "evidence_uri": {"$ref": "#/$defs/https_uri"}
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner",
+        "minimum_window_seconds",
+        "success_criteria",
+        "stop_conditions",
+        "evidence_uri"
+      ],
+      "properties": {
+        "owner": {"type": "string", "minLength": 1},
+        "minimum_window_seconds": {"type": "integer", "minimum": 60300},
+        "success_criteria": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "stop_conditions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "evidence_uri": {"$ref": "#/$defs/https_uri"}
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supply_chain",
+        "bucket_governance",
+        "staging_e2e",
+        "workflow_replay",
+        "red_team",
+        "fault_injection",
+        "disaster_recovery",
+        "retention_policy",
+        "cost_budget",
+        "capacity",
+        "slo_latency",
+        "observability"
+      ],
+      "properties": {
+        "supply_chain": {"$ref": "#/$defs/gate"},
+        "bucket_governance": {"$ref": "#/$defs/gate"},
+        "staging_e2e": {"$ref": "#/$defs/gate"},
+        "workflow_replay": {"$ref": "#/$defs/gate"},
+        "red_team": {"$ref": "#/$defs/gate"},
+        "fault_injection": {"$ref": "#/$defs/gate"},
+        "disaster_recovery": {"$ref": "#/$defs/gate"},
+        "retention_policy": {"$ref": "#/$defs/gate"},
+        "cost_budget": {"$ref": "#/$defs/gate"},
+        "capacity": {"$ref": "#/$defs/gate"},
+        "slo_latency": {"$ref": "#/$defs/gate"},
+        "observability": {"$ref": "#/$defs/gate"}
+      }
+    },
+    "evidence_store": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "uri",
+        "version_id",
+        "digest_uri",
+        "signature_bundle_uri",
+        "signer_identity",
+        "signer_issuer",
+        "retention_until",
+        "access_audit_uri"
+      ],
+      "properties": {
+        "uri": {"$ref": "#/$defs/https_uri"},
+        "version_id": {"type": "string", "minLength": 1},
+        "digest_uri": {"$ref": "#/$defs/https_uri"},
+        "signature_bundle_uri": {"$ref": "#/$defs/https_uri"},
+        "signer_identity": {"type": "string", "minLength": 1},
+        "signer_issuer": {"$ref": "#/$defs/https_uri"},
+        "retention_until": {"$ref": "#/$defs/timestamp"},
+        "access_audit_uri": {"$ref": "#/$defs/https_uri"}
+      }
+    },
+    "generated_at": {"$ref": "#/$defs/timestamp"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "https_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate_id",
+        "release_id",
+        "git_sha",
+        "image_digest",
+        "status",
+        "owner",
+        "completed_at",
+        "evidence_uri",
+        "report_sha256",
+        "issuer"
+      ],
+      "properties": {
+        "gate_id": {"type": "string", "minLength": 1},
+        "release_id": {"type": "string", "minLength": 1},
+        "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "image_digest": {"$ref": "#/$defs/sha256"},
+        "status": {"const": "passed"},
+        "owner": {"type": "string", "minLength": 1},
+        "completed_at": {"$ref": "#/$defs/timestamp"},
+        "evidence_uri": {"$ref": "#/$defs/https_uri"},
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "issuer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "identity",
+            "authentication",
+            "issued_at",
+            "evidence_uri"
+          ],
+          "properties": {
+            "identity": {"type": "string", "minLength": 1},
+            "authentication": {"enum": ["sigstore", "spiffe-mtls", "oidc"]},
+            "issued_at": {"$ref": "#/$defs/timestamp"},
+            "evidence_uri": {"$ref": "#/$defs/https_uri"}
+          }
+        }
+      }
+    }
+  }
+}

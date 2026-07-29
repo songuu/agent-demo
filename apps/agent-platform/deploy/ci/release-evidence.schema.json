@@ -1,0 +1,1151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-platform.example/schemas/release-evidence-1.2.json",
+  "title": "Agent Platform release evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "release_id",
+    "git_sha",
+    "image_digest",
+    "evidence_publication",
+    "external_release_preflight_uri",
+    "sbom_uri",
+    "provenance_uri",
+    "foundation_attestation_uri",
+    "foundation_attestation_signature_bundle_uri",
+    "foundation_attestation_validation_uri",
+    "foundation_attestation_validation",
+    "base_image_digest",
+    "platform_versions",
+    "operational_readiness_uri",
+    "operational_readiness_sha256",
+    "operational_readiness_validation_uri",
+    "operational_readiness_validation_sha256",
+    "operational_readiness_validation",
+    "prompt_versions",
+    "tool_catalog_id",
+    "tool_catalog_digest",
+    "tool_versions",
+    "policy_bundle_version",
+    "eval_results_uri",
+    "candidate_manifest_uri",
+    "candidate_results_uri",
+    "human_review_evidence_uri",
+    "canary_evidence_uri",
+    "canary_signature_bundle_uri",
+    "canary_validation_uri",
+    "canary_validation",
+    "staging_verification_uri",
+    "production_verification_uri",
+    "approvals_bundle_uri",
+    "release_approvals_signature_bundle_uri",
+    "release_approvals_validation_uri",
+    "release_approvals_validation",
+    "approvals",
+    "deployment_gate",
+    "created_at"
+  ],
+  "properties": {
+    "release_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "git_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "image_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "evidence_publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "kind",
+        "release_id",
+        "git_sha",
+        "image_digest",
+        "assets",
+        "published_at",
+        "verified"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.0"
+        },
+        "kind": {
+          "const": "release-evidence-component"
+        },
+        "release_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "git_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "image_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "assets": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 22,
+          "maxProperties": 22,
+          "required": [
+            "sbom",
+            "provenance",
+            "eval_results",
+            "candidate_manifest",
+            "candidate_results",
+            "human_review",
+            "canary",
+            "canary_signature_bundle",
+            "canary_validation",
+            "staging_verification",
+            "production_verification",
+            "foundation_attestation",
+            "foundation_attestation_signature_bundle",
+            "foundation_attestation_validation",
+            "operational_readiness",
+            "operational_readiness_validation",
+            "release_approvals",
+            "release_approvals_signature_bundle",
+            "release_approvals_validation",
+            "deployment_approval",
+            "production_observability",
+            "external_release_preflight"
+          ],
+          "properties": {
+            "sbom": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "provenance": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "eval_results": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "candidate_manifest": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "candidate_results": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "human_review": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "canary": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "canary_signature_bundle": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "canary_validation": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "staging_verification": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "production_verification": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "foundation_attestation": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "foundation_attestation_signature_bundle": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "foundation_attestation_validation": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "operational_readiness": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "operational_readiness_validation": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "release_approvals": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "deployment_approval": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "production_observability": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "external_release_preflight": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "release_approvals_signature_bundle": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            },
+            "release_approvals_validation": {
+              "$ref": "#/$defs/publishedEvidenceAsset"
+            }
+          }
+        },
+        "published_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "verified": {
+          "const": true
+        }
+      }
+    },
+    "external_release_preflight_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+    },
+    "sbom_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "provenance_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "foundation_attestation_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+    },
+    "foundation_attestation_signature_bundle_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+    },
+    "foundation_attestation_validation_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+    },
+    "foundation_attestation_validation": {
+      "$ref": "#/$defs/foundationAttestationValidation"
+    },
+    "base_image_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "platform_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_image_digest",
+        "workflow_code",
+        "sdk",
+        "model_route",
+        "contract_schema",
+        "alembic_revision"
+      ],
+      "properties": {
+        "base_image_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "workflow_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sdk": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_route": {
+          "type": "string",
+          "minLength": 1
+        },
+        "contract_schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "alembic_revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "operational_readiness_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+    },
+    "operational_readiness_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "operational_readiness_validation_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+    },
+    "operational_readiness_validation_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "operational_readiness_validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "release_id",
+        "git_sha",
+        "image_digest",
+        "operational_readiness_sha256",
+        "signer_identity",
+        "signer_issuer",
+        "gate_report_sha256",
+        "gate_raw_evidence",
+        "gate_reports_validated",
+        "training_populations",
+        "validated_gate_ids",
+        "evidence_version_id",
+        "validated"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.0"
+        },
+        "release_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "git_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "image_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "operational_readiness_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "signer_identity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signer_issuer": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "gate_report_sha256": {
+          "type": "object",
+          "minProperties": 12,
+          "maxProperties": 12,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "gate_raw_evidence": {
+          "type": "object",
+          "minProperties": 12,
+          "maxProperties": 12,
+          "propertyNames": {
+            "enum": [
+              "supply_chain",
+              "bucket_governance",
+              "staging_e2e",
+              "workflow_replay",
+              "red_team",
+              "fault_injection",
+              "disaster_recovery",
+              "retention_policy",
+              "cost_budget",
+              "capacity",
+              "slo_latency",
+              "observability"
+            ]
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["uri", "sha256"],
+            "properties": {
+              "uri": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        "gate_reports_validated": {
+          "const": true
+        },
+        "training_populations": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "business-users",
+              "approvers",
+              "on-call"
+            ]
+          }
+        },
+        "validated_gate_ids": {
+          "type": "array",
+          "minItems": 12,
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "evidence_version_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validated": {
+          "const": true
+        }
+      }
+    },
+    "prompt_versions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "tool_catalog_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$"
+    },
+    "tool_catalog_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "tool_versions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "policy_bundle_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "eval_results_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "candidate_manifest_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "candidate_results_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "human_review_evidence_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "canary_evidence_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "canary_signature_bundle_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+    },
+    "canary_validation_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+    },
+    "canary_validation": {
+      "$ref": "#/$defs/canaryValidation"
+    },
+    "staging_verification_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "production_verification_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "approvals_bundle_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+    },
+    "approvals": {
+      "type": "array",
+      "minItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "release_id",
+          "git_sha",
+          "image_digest",
+          "actor",
+          "role",
+          "decision",
+          "approved_at",
+          "authentication",
+          "evidence_uri"
+        ],
+        "properties": {
+          "release_id": {
+            "type": "string"
+          },
+          "git_sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "image_digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "actor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "enum": [
+              "security",
+              "business",
+              "sre",
+              "data-system-owner"
+            ]
+          },
+          "decision": {
+            "const": "approved"
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "authentication": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "assurance",
+              "method",
+              "authenticated_at"
+            ],
+            "properties": {
+              "assurance": {
+                "const": "phishing-resistant"
+              },
+              "method": {
+                "enum": [
+                  "webauthn",
+                  "fido2-security-key",
+                  "piv"
+                ]
+              },
+              "authenticated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "evidence_uri": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          }
+        }
+      },
+      "maxItems": 4
+    },
+    "deployment_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "actor",
+        "actor_type",
+        "role",
+        "decision",
+        "environment",
+        "comment",
+        "recorded_at",
+        "source_uri"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.0"
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor_type": {
+          "const": "User"
+        },
+        "role": {
+          "const": "github-environment-reviewer"
+        },
+        "decision": {
+          "const": "approved"
+        },
+        "environment": {
+          "const": "agent-platform-production"
+        },
+        "comment": {
+          "type": "string"
+        },
+        "recorded_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source_uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://api\\.github\\.com/repos/.+/actions/runs/[0-9]+/approvals$"
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "release_approvals_signature_bundle_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+    },
+    "release_approvals_validation_uri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+    },
+    "release_approvals_validation": {
+      "$ref": "#/$defs/releaseApprovalsValidation"
+    }
+  },
+  "$defs": {
+    "canaryValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "release_id",
+        "git_sha",
+        "image_digest",
+        "source_uri",
+        "canary_evidence_sha256",
+        "signature_bundle_sha256",
+        "policy_version",
+        "policy_sha256",
+        "controller_rollout_id",
+        "rollback_owner_actor",
+        "signer_identity",
+        "signer_issuer",
+        "validated_phase_ids",
+        "metric_snapshot_sha256",
+        "observed_duration_seconds",
+        "validated_at",
+        "validated"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.1"
+        },
+        "release_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "git_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "image_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "source_uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[^\\s]+/sha256:[0-9a-f]{64}$"
+        },
+        "canary_evidence_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "signature_bundle_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "policy_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "controller_rollout_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rollback_owner_actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signer_identity": {
+          "type": "string",
+          "minLength": 3
+        },
+        "signer_issuer": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "validated_phase_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "metric_snapshot_sha256": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "observed_duration_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "validated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "validated": {
+          "const": true
+        }
+      }
+    },
+    "foundationAttestationValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "release_id",
+        "git_sha",
+        "image_digest",
+        "source_uri",
+        "foundation_attestation_sha256",
+        "signature_bundle_sha256",
+        "signer_identity",
+        "signer_issuer",
+        "signature_verified",
+        "terraform_version",
+        "execution_mode",
+        "provider",
+        "provider_regions",
+        "resource_ids",
+        "approved_by",
+        "attested_at",
+        "validated_at",
+        "validated"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.0"
+        },
+        "release_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "git_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "image_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "source_uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[^\\s]+/sha256:[0-9a-f]{64}$"
+        },
+        "foundation_attestation_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "signature_bundle_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "signer_identity": {
+          "type": "string",
+          "minLength": 3
+        },
+        "signer_issuer": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "signature_verified": {
+          "const": true
+        },
+        "terraform_version": {
+          "const": "1.9.8"
+        },
+        "execution_mode": {
+          "enum": [
+            "terraform-apply-readback",
+            "cloud-api-read-only"
+          ]
+        },
+        "provider": {
+          "enum": [
+            "aws",
+            "gcp",
+            "azure"
+          ]
+        },
+        "provider_regions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 2
+          }
+        },
+        "resource_ids": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kubernetes",
+            "postgres",
+            "artifact_final",
+            "artifact_staging",
+            "temporal",
+            "opa",
+            "egress_policy",
+            "secret_manager"
+          ],
+          "properties": {
+            "kubernetes": {
+              "type": "string",
+              "minLength": 8
+            },
+            "postgres": {
+              "type": "string",
+              "minLength": 8
+            },
+            "artifact_final": {
+              "type": "string",
+              "minLength": 8
+            },
+            "artifact_staging": {
+              "type": "string",
+              "minLength": 8
+            },
+            "temporal": {
+              "type": "string",
+              "minLength": 8
+            },
+            "opa": {
+              "type": "string",
+              "minLength": 8
+            },
+            "egress_policy": {
+              "type": "string",
+              "minLength": 8
+            },
+            "secret_manager": {
+              "type": "string",
+              "minLength": 8
+            }
+          }
+        },
+        "approved_by": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 3
+          }
+        },
+        "attested_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "validated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "validated": {
+          "const": true
+        }
+      }
+    },
+    "publishedEvidenceAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "content_uri",
+        "sha256",
+        "size_bytes",
+        "classification",
+        "release_binding",
+        "retention_policy",
+        "scan_status",
+        "object_version_id",
+        "object_retain_until",
+        "legal_hold_status",
+        "expires_at",
+        "readback_verified"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "content_uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "classification": {
+          "const": "restricted"
+        },
+        "release_binding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "release_id",
+            "git_sha",
+            "image_digest"
+          ],
+          "properties": {
+            "release_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+            },
+            "git_sha": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "image_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "retention_policy": {
+          "type": "string",
+          "pattern": "^release-evidence@1:immutable:[0-9]{3,4}d$"
+        },
+        "scan_status": {
+          "const": "malware_clean"
+        },
+        "object_version_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "object_retain_until": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "legal_hold_status": {
+          "enum": [
+            "none",
+            "on"
+          ]
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "readback_verified": {
+          "const": true
+        }
+      }
+    },
+    "releaseApprovalsValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "release_id",
+        "git_sha",
+        "image_digest",
+        "source_uri",
+        "release_approvals_sha256",
+        "signature_bundle_sha256",
+        "signer_identity",
+        "signer_issuer",
+        "roles",
+        "actors",
+        "authentication_methods",
+        "issued_at",
+        "validated_at",
+        "validated"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "1.1"
+        },
+        "release_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "git_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "image_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "source_uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://[^\\s]+/sha256:[0-9a-f]{64}$"
+        },
+        "release_approvals_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "signature_bundle_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "signer_identity": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "signer_issuer": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "roles": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "security",
+              "business",
+              "sre",
+              "data-system-owner"
+            ]
+          }
+        },
+        "actors": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "authentication_methods": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "security",
+            "business",
+            "sre",
+            "data-system-owner"
+          ],
+          "properties": {
+            "security": {
+              "enum": [
+                "webauthn",
+                "fido2-security-key",
+                "piv"
+              ]
+            },
+            "business": {
+              "enum": [
+                "webauthn",
+                "fido2-security-key",
+                "piv"
+              ]
+            },
+            "sre": {
+              "enum": [
+                "webauthn",
+                "fido2-security-key",
+                "piv"
+              ]
+            },
+            "data-system-owner": {
+              "enum": [
+                "webauthn",
+                "fido2-security-key",
+                "piv"
+              ]
+            }
+          }
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "validated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "validated": {
+          "const": true
+        }
+      }
+    }
+  }
+}

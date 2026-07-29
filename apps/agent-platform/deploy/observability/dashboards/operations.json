@@ -1,0 +1,81 @@
+{
+  "uid": "agent-platform-operations",
+  "title": "Agent Platform - Operations",
+  "schemaVersion": 39,
+  "tags": [
+    "agent-platform",
+    "operations"
+  ],
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Task queue backlog",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "max by (queue) (agent_queue_backlog)"
+        },
+        {
+          "expr": "max by (queue) (agent_queue_oldest_age_seconds)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Activity failures",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (activity, status) (rate(agent_activity_executions_total[5m]))"
+        },
+        {
+          "expr": "agent:activity_failure:ratio5m"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Dependency health",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "min by (dependency) (agent_dependency_health)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Run and task P95 latency",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:run_duration:p95"
+        },
+        {
+          "expr": "agent:task_duration:p95"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Capacity utilization",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "max by (resource) (agent_capacity_utilization_ratio)"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "SLO error budget burn",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "1 - agent:run_accept_availability:ratio5m"
+        }
+      ]
+    }
+  ]
+}

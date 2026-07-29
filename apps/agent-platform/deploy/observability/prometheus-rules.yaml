@@ -1,0 +1,186 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: agent-platform
+spec:
+  groups:
+    - name: agent-platform-recording
+      interval: 30s
+      rules:
+        - record: agent:run_accept_availability:ratio5m
+          expr: sum(rate(agent_run_accept_requests_total{outcome="accepted"}[5m])) / clamp_min(sum(rate(agent_run_accept_requests_total[5m])), 1)
+        - record: agent:run_accept:rate5m
+          expr: sum by (environment) (rate(agent_run_accept_requests_total[5m]))
+        - record: agent:run_received:rate5m
+          expr: sum by (use_case, risk, tenant_tier) (rate(agent_runs_total{status="received"}[5m]))
+        - record: agent:run_duration:p95
+          expr: histogram_quantile(0.95, sum by (le, use_case) (rate(agent_run_duration_seconds_bucket[5m])))
+        - record: agent:task_duration:p95
+          expr: histogram_quantile(0.95, sum by (le, kind, model) (rate(agent_task_duration_seconds_bucket[5m])))
+        - record: agent:activity_failure:ratio5m
+          expr: sum(rate(agent_activity_executions_total{status!="completed"}[5m])) / clamp_min(sum(rate(agent_activity_executions_total[5m])), 1)
+        - record: agent:model_request:error_ratio
+          expr: sum(rate(agent_model_requests_total{status="error"}[5m])) / clamp_min(sum(rate(agent_model_requests_total[5m])), 1)
+        - record: agent:model_latency:p95
+          expr: histogram_quantile(0.95, sum by (le, model, role) (rate(agent_model_latency_seconds_bucket[5m])))
+        - record: agent:model_tokens:rate5m
+          expr: sum by (model, role, direction) (rate(agent_model_tokens_total[5m]))
+        - record: agent:model_cache_hit:ratio5m
+          expr: sum(rate(agent_model_cache_total{status="hit"}[5m])) / clamp_min(sum(rate(agent_model_cache_total[5m])), 1)
+        - record: agent:model_upgrade:rate5m
+          expr: sum by (role, from_model, to_model, reason) (rate(agent_model_upgrades_total[5m]))
+        - record: agent:cost_usd:rate1h
+          expr: sum by (environment, model, use_case, tenant_tier) (rate(agent_cost_usd_total[1h]))
+        - record: agent:platform_cost_usd:rate1h
+          expr: sum by (environment, component, use_case, tenant_tier) (rate(agent_platform_cost_usd_total[1h]))
+        - record: agent:cost_per_success:usd1h
+          expr: sum by (environment, use_case, tenant_tier) (increase(agent_platform_cost_usd_total[1h])) / clamp_min(sum by (environment, use_case, tenant_tier) (increase(agent_runs_total{status="completed"}[1h])), 1)
+        - record: agent:success_cost_usd:p95
+          expr: histogram_quantile(0.95, sum by (environment, le, use_case, tenant_tier) (rate(agent_success_cost_usd_bucket[1h])))
+        - record: agent:tenant_budget_utilization:p95
+          expr: histogram_quantile(0.95, sum by (environment, le, period, control_level, tenant_tier) (rate(agent_tenant_budget_utilization_ratio_bucket[15m])))
+        - record: agent:tool_error:ratio5m
+          expr: sum(rate(agent_tool_calls_total{status=~"error|timeout|unknown|verify_failed"}[5m])) / clamp_min(sum(rate(agent_tool_calls_total[5m])), 1)
+        - record: agent:tool_latency:p95
+          expr: histogram_quantile(0.95, sum by (le, tool) (rate(agent_tool_latency_seconds_bucket[5m])))
+        - record: agent:tool_result_bytes:p95
+          expr: histogram_quantile(0.95, sum by (le, tool) (rate(agent_tool_result_bytes_bucket[5m])))
+        - record: agent:mcp_unhealthy
+          expr: sum(agent_mcp_server_health == 0)
+        - record: agent:policy_denial:rate5m
+          expr: sum by (reason_code) (rate(agent_policy_decisions_total{decision!="allow"}[5m]))
+        - record: agent:action_unknown:rate5m
+          expr: sum by (action_type) (rate(agent_actions_total{status="unknown"}[5m]))
+        - record: agent:approval_duration:p95
+          expr: histogram_quantile(0.95, sum by (le, policy, decision) (rate(agent_approvals_duration_seconds_bucket[5m])))
+        - record: agent:pending_approvals:max
+          expr: max by (environment, risk) (agent_pending_approvals)
+        - record: agent:pending_approval_oldest_age:max
+          expr: max by (environment) (agent_pending_approval_oldest_age_seconds)
+        - record: agent:pending_approval_overdue_cleanup_lag:max
+          expr: max by (environment) (agent_pending_approval_overdue_cleanup_lag_seconds)
+        - record: agent:approval_notification_latency:p95
+          expr: max by (environment) (agent_approval_notification_latency_seconds{quantile="0.95"})
+        - record: agent:approval_notification_samples:max
+          expr: max by (environment) (agent_approval_notification_samples)
+        - record: agent:outbox_events:max
+          expr: max by (environment, state) (agent_outbox_events_current)
+        - record: agent:webhook_deliveries:max
+          expr: max by (environment, status) (agent_webhook_deliveries_current)
+        - record: agent:approval_webhook_deliveries:max
+          expr: max by (environment, status) (agent_approval_webhook_deliveries_current)
+        - record: agent:pending_approval_notifications_missing:max
+          expr: max by (environment) (agent_pending_approval_notifications_missing)
+        - record: agent:pending_approval_notification_oldest_missing_age:max
+          expr: max by (environment) (agent_pending_approval_notification_oldest_missing_age_seconds)
+        - record: agent:verification_failure:rate5m
+          expr: sum by (verifier, reason) (rate(agent_verification_failures_total[5m]))
+        - record: agent:trajectory_alert:rate5m
+          expr: sum by (severity, reason) (rate(agent_trajectory_alerts_total[5m]))
+        - record: agent:budget_utilization:p95
+          expr: histogram_quantile(0.95, sum by (le, use_case, tenant_tier, budget_type) (rate(agent_budget_utilization_ratio_bucket[15m])))
+        - record: agent:queue_backlog:max
+          expr: max by (environment, queue) (agent_queue_backlog)
+        - record: agent:queue_oldest_age:max
+          expr: max by (environment, queue) (agent_queue_oldest_age_seconds)
+        - record: agent:dependency_unavailable
+          expr: sum by (dependency) (agent_dependency_health == 0)
+        - record: agent:capacity_utilization:max
+          expr: max by (resource) (agent_capacity_utilization_ratio)
+        - record: agent:security_event:rate5m
+          expr: sum by (category, severity, outcome) (rate(agent_security_events_total[5m]))
+    - name: agent-platform-alerts
+      rules:
+        - alert: AgentDuplicateSideEffect
+          expr: increase(agent_security_events_total{category="duplicate_side_effect",severity="sev1",outcome="confirmed"}[5m]) > 0
+          for: 0m
+          labels: {severity: sev1}
+          annotations:
+            summary: Confirmed duplicate external side effect detected
+            runbook: docs/runbooks/commit-unknown.md
+        - alert: AgentCrossTenantLeakSuspected
+          expr: increase(agent_security_events_total{category="cross_tenant_data_exposure",severity="sev1",outcome="confirmed"}[5m]) > 0
+          for: 0m
+          labels: {severity: sev1}
+          annotations:
+            summary: Confirmed cross-tenant data exposure detected
+            runbook: docs/runbooks/cross-tenant-leak.md
+        - alert: AgentSecretExposure
+          expr: increase(agent_security_events_total{category="secret_exposure",severity="sev1",outcome="confirmed"}[5m]) > 0
+          for: 0m
+          labels: {severity: sev1}
+          annotations:
+            summary: Confirmed secret exposure detected
+        - alert: AgentUncontrolledExternalWrite
+          expr: increase(agent_security_events_total{category="uncontrolled_external_write",severity="sev1",outcome="confirmed"}[5m]) > 0
+          for: 0m
+          labels: {severity: sev1}
+          annotations:
+            summary: Confirmed uncontrolled external write detected
+        - alert: AgentCommitUnknownSurge
+          expr: sum(agent:action_unknown:rate5m) > 0.05
+          for: 5m
+          labels: {severity: sev2}
+          annotations:
+            summary: Commit UNKNOWN outcomes are increasing
+            runbook: docs/runbooks/commit-unknown.md
+        - alert: AgentCriticalDependencyUnavailable
+          expr: sum(agent_dependency_health{dependency=~"postgres|temporal|opa|artifact|tool_gateway"} == 0) > 0
+          for: 2m
+          labels: {severity: sev2}
+          annotations:
+            summary: A critical Agent Platform dependency is unavailable
+        - alert: AgentSLOFastBurn
+          expr: (1 - agent:run_accept_availability:ratio5m) > (14.4 * (1 - 0.999))
+          for: 5m
+          labels: {severity: sev2}
+          annotations:
+            summary: Run acceptance availability is burning the error budget
+        - alert: AgentPromptInjectionEscalation
+          expr: sum(agent:security_event:rate5m{category=~"prompt_injection|sensitive_data_egress",outcome="blocked"}) > 0.1
+          for: 5m
+          labels: {severity: sev2}
+          annotations:
+            summary: Safety controls are blocking a surge of hostile trajectories
+        - alert: AgentToolLatencyRegression
+          expr: agent:tool_latency:p95 > 5
+          for: 15m
+          labels: {severity: sev3}
+          annotations:
+            summary: Tool P95 latency exceeds the operational budget
+        - alert: AgentQueueBacklog
+          expr: agent_queue_backlog > 100 or agent_queue_oldest_age_seconds > 120
+          for: 10m
+          labels: {severity: sev3}
+          annotations:
+            summary: Temporal task queue backlog exceeds its operating envelope
+        - alert: AgentApprovalNotificationLatency
+          expr: agent:approval_notification_latency:p95 > 30
+          for: 2m
+          labels: {severity: sev2}
+          annotations:
+            summary: Approval notification P95 exceeds 30 seconds
+        - alert: AgentApprovalNotificationMissing
+          expr: agent:pending_approval_notifications_missing:max > 0 and on (environment) agent:pending_approval_notification_oldest_missing_age:max > 30
+          for: 2m
+          labels: {severity: sev2}
+          annotations:
+            summary: Pending approvals have no delivered notification samples
+        - alert: AgentApprovalDeliveryBacklog
+          expr: agent:approval_webhook_deliveries:max{status=~"retry|dead_letter"} > 0
+          for: 5m
+          labels: {severity: sev2}
+          annotations:
+            summary: Approval notification delivery is retrying or dead-lettered
+        - alert: AgentOperationalMetricsStale
+          expr: min by (environment) (agent_operational_metrics_collector_up) < 1 or (time() - min by (environment) (agent_operational_metrics_last_success_timestamp_seconds)) > 60
+          for: 2m
+          labels: {severity: sev2}
+          annotations:
+            summary: Operational database metrics are unavailable or stale
+        - alert: AgentBudgetOverrun
+          expr: agent:budget_utilization:p95 > 1
+          for: 15m
+          labels: {severity: sev3}
+          annotations:
+            summary: P95 run budget utilization exceeds the approved limit

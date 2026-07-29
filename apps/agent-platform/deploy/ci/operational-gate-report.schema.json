@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-platform.example/schemas/operational-gate-report-1.0.json",
+  "title": "Operational release gate report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "gate_id",
+    "release_id",
+    "git_sha",
+    "image_digest",
+    "status",
+    "started_at",
+    "performed_at",
+    "completed_at",
+    "scope",
+    "checks",
+    "blocking_findings",
+    "issuer",
+    "generated_at"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {"gate_id": {"const": "capacity"}},
+        "required": ["gate_id"]
+      },
+      "then": {
+        "required": ["raw_capacity_report"],
+        "not": {"required": ["raw_evidence"]}
+      },
+      "else": {
+        "required": ["raw_evidence"],
+        "not": {"required": ["raw_capacity_report"]}
+      }
+    }
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "gate_id": {"type": "string", "minLength": 1},
+    "release_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "image_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "status": {"const": "passed"},
+    "started_at": {"type": "string", "format": "date-time"},
+    "performed_at": {"type": "string", "format": "date-time"},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment", "release_asset_id", "assets", "regions"],
+      "properties": {
+        "environment": {"enum": ["staging", "production"]},
+        "release_asset_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}@sha256:[0-9a-f]{64}$"
+        },
+        "assets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["asset_type", "asset_id", "evidence_uri"],
+            "properties": {
+              "asset_type": {
+                "enum": [
+                  "image",
+                  "policy_bundle",
+                  "tool_catalog",
+                  "api",
+                  "postgresql",
+                  "temporal",
+                  "artifact_bucket",
+                  "opa",
+                  "model_gateway",
+                  "tool_gateway",
+                  "approval_store",
+                  "observability",
+                  "alert_receiver",
+                  "billing_export",
+                  "regional_stack"
+                ]
+              },
+              "asset_id": {"type": "string", "minLength": 1},
+              "evidence_uri": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https://"
+              }
+            }
+          }
+        },
+        "regions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "backup_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "comparison", "observed", "threshold", "evidence_uri"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "status": {"const": "passed"},
+          "comparison": {"enum": ["eq", "lte", "gte"]},
+          "observed": {"type": ["string", "number", "integer", "boolean"]},
+          "threshold": {"type": ["string", "number", "integer", "boolean"]},
+          "evidence_uri": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          }
+        }
+      }
+    },
+    "drills": {
+      "type": "array",
+      "minItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "drill_type",
+          "completed_at",
+          "asset_types",
+          "asset_ids",
+          "backup_ids",
+          "regions",
+          "observed_rpo_minutes",
+          "observed_rto_minutes",
+          "evidence_uri"
+        ],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "drill_type": {
+            "enum": ["daily_restore", "quarterly_db_artifact", "semiannual_region"]
+          },
+          "completed_at": {"type": "string", "format": "date-time"},
+          "asset_types": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": ["postgresql", "temporal", "artifact_bucket", "regional_stack"]
+            }
+          },
+          "asset_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "backup_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "regions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          },
+          "observed_rpo_minutes": {"type": "number", "minimum": 0},
+          "observed_rto_minutes": {"type": "number", "minimum": 0},
+          "evidence_uri": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          }
+        }
+      }
+    },
+    "fault_matrix": {
+      "type": "array",
+      "minItems": 10,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["component", "outcome", "completed_at", "evidence_uri"],
+        "properties": {
+          "component": {
+            "enum": [
+              "planner",
+              "worker",
+              "verifier",
+              "approval",
+              "commit",
+              "model",
+              "tool",
+              "database",
+              "artifact",
+              "opa"
+            ]
+          },
+          "outcome": {"enum": ["recovered", "fail_closed"]},
+          "completed_at": {"type": "string", "format": "date-time"},
+          "evidence_uri": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          }
+        }
+      }
+    },
+    "blocking_findings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["critical", "high"],
+      "properties": {
+        "critical": {"const": 0},
+        "high": {"const": 0}
+      }
+    },
+    "issuer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "authentication", "issued_at", "evidence_uri"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 1},
+        "authentication": {"enum": ["sigstore", "spiffe-mtls", "oidc"]},
+        "issued_at": {"type": "string", "format": "date-time"},
+        "evidence_uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        }
+      }
+    },
+    "raw_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "raw_capacity_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "generated_at": {"type": "string", "format": "date-time"}
+  }
+}

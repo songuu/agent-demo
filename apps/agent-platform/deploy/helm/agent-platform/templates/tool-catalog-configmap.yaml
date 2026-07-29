@@ -1,0 +1,25 @@
+{{- $catalog := .Files.Get "files/tool-catalog.v1.json" -}}
+{{- $embeddedDigest := printf "sha256:%s" (sha256sum $catalog) -}}
+{{- $expectedDigest := required "global.toolCatalogDigest is required" .Values.global.toolCatalogDigest -}}
+{{- if ne $embeddedDigest $expectedDigest -}}
+{{- fail (printf "embedded tool catalog digest %s does not match global.toolCatalogDigest %s" $embeddedDigest $expectedDigest) -}}
+{{- end -}}
+{{- $catalogDocument := fromJson $catalog -}}
+{{- $embeddedCatalogId := get $catalogDocument "catalog_id" -}}
+{{- $expectedCatalogId := required "global.toolCatalogId is required" .Values.global.toolCatalogId -}}
+{{- if ne $embeddedCatalogId $expectedCatalogId -}}
+{{- fail (printf "embedded tool catalog id %s does not match global.toolCatalogId %s" $embeddedCatalogId $expectedCatalogId) -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "agent-platform.toolCatalogConfigMapName" . }}
+  labels:
+    app.kubernetes.io/name: agent-platform
+    agent.platform/catalog-id: {{ .Values.global.toolCatalogId | quote }}
+  annotations:
+    agent.platform/catalog-digest: {{ .Values.global.toolCatalogDigest | quote }}
+immutable: true
+data:
+  tool-catalog.json: |
+{{ $catalog | indent 4 }}

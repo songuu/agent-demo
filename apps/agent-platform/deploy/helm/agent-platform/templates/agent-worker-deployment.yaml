@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels: {app: agent-worker}
+  template:
+    metadata:
+      labels: {app: agent-worker, plane: execution}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9464"
+        agent.platform/model-pricing-configmap: {{ .Values.config.modelPricingCatalogConfigMapName | quote }}
+    spec:
+      serviceAccountName: agent-worker
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: worker
+          image: "{{ .Values.global.imageRepository }}@{{ .Values.global.imageDigest }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["agent-platform-agent-worker"]
+          ports:
+            - {name: health, containerPort: 8081}
+            - {name: metrics, containerPort: 9464}
+          envFrom:
+            - configMapRef: {name: agent-platform-config}
+          env:
+            - name: AGENT_PROCESS_ROLE
+              value: "agent-worker"
+            - name: HTTPS_PROXY
+              value: {{ .Values.egress.agentProxyUrl | quote }}
+            - name: AGENT_TOOL_GATEWAY_EGRESS_PROXY_URL
+              value: {{ .Values.egress.agentProxyUrl | quote }}
+            - name: AGENT_OPENAI_BASE_URL
+              value: {{ .Values.config.openAIBaseUrl | quote }}
+            - name: AGENT_OPENAI_PROJECT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.openAISecretName }}
+                  key: {{ .Values.secrets.openAIProjectKey }}
+            - name: AGENT_MODEL_MAX_IN_FLIGHT
+              value: {{ .Values.modelReliability.maxInFlight | quote }}
+            - name: AGENT_MODEL_MAX_QUEUED
+              value: {{ .Values.modelReliability.maxQueued | quote }}
+            - name: AGENT_MODEL_QUEUE_TIMEOUT_SECONDS
+              value: {{ .Values.modelReliability.queueTimeoutSeconds | quote }}
+            - name: AGENT_MODEL_CIRCUIT_FAILURE_THRESHOLD
+              value: {{ .Values.modelReliability.circuitFailureThreshold | quote }}
+            - name: AGENT_MODEL_CIRCUIT_RECOVERY_SECONDS
+              value: {{ .Values.modelReliability.circuitRecoverySeconds | quote }}
+            - name: AGENT_MODEL_PRICING_CATALOG_PATH
+              value: /etc/agent-platform/model-pricing/catalog.json
+            - name: AGENT_ACTION_PAYLOAD_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.cryptoSecretName }}, key: action-payload-encryption-key}
+            - name: AGENT_MEMORY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.cryptoSecretName }}, key: memory-encryption-key}
+            - name: AGENT_ARTIFACT_KMS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.cryptoSecretName }}
+                  key: {{ .Values.secrets.artifactKmsKeyIdKey }}
+            - name: AGENT_ARTIFACT_RESTRICTED_KMS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.cryptoSecretName }}
+                  key: {{ .Values.secrets.artifactRestrictedKmsKeyIdKey }}
+            - name: AGENT_ARTIFACT_SECRET_KMS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.cryptoSecretName }}
+                  key: {{ .Values.secrets.artifactSecretKmsKeyIdKey }}
+            - name: AGENT_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.openAISecretName }}, key: api-key}
+            - name: AGENT_AGENT_CREDENTIAL_REF
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.agentCredentialSecretName }}, key: broker-ref}
+            - name: AGENT_TEMPORAL_TASK_QUEUE
+              value: {{ .Values.worker.taskQueue | quote }}
+            - name: AGENT_MAX_CONCURRENT_ACTIVITIES
+              value: {{ .Values.worker.maxConcurrentActivities | quote }}
+            - name: AGENT_DATABASE_DSN
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.databaseSecretName }}, key: worker-dsn}
+            - name: AGENT_QUOTA_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.quotaSecretName }}
+                  key: {{ .Values.secrets.quotaRedisUrlKey }}
+            - name: AGENT_QUOTA_KEY_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.quotaSecretName }}
+                  key: {{ .Values.secrets.quotaKeyHmacSecretKey }}
+          resources:
+            requests: {cpu: "500m", memory: "1Gi"}
+            limits: {cpu: "2", memory: "4Gi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            httpGet: {path: /health, port: health}
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /ready, port: health}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: health}
+            periodSeconds: 20
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - name: model-pricing
+              mountPath: /etc/agent-platform/model-pricing
+              readOnly: true
+            - name: tool-catalog
+              mountPath: /etc/agent-platform/tool-catalog
+              readOnly: true
+            - name: cost-rates
+              mountPath: /etc/agent-platform/cost-rates
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 1Gi}
+        - name: model-pricing
+          configMap:
+            name: {{ .Values.config.modelPricingCatalogConfigMapName }}
+            items:
+              - key: {{ .Values.config.modelPricingCatalogKey }}
+                path: catalog.json
+        - name: tool-catalog
+          configMap:
+            name: {{ include "agent-platform.toolCatalogConfigMapName" . }}
+        - name: cost-rates
+          configMap:
+            name: agent-platform-cost-rates
+            items:
+              - key: catalog.json
+                path: catalog.json

@@ -1,0 +1,42 @@
+{{- if .Values.sandbox.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agent-sandbox-template
+  annotations:
+    agent-platform.openai.com/template-only: "true"
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels: {app: agent-sandbox, plane: sandbox}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: sandbox
+      automountServiceAccountToken: false
+      runtimeClassName: gvisor
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: sandbox
+          image: "{{ .Values.global.imageRepository }}@{{ .Values.global.imageDigest }}"
+          command: ["python", "-c"]
+          args:
+            - "from agent_platform.infrastructure.sandbox import SandboxLimits; SandboxLimits(); print('sandbox-runtime-contract-ok')"
+          resources:
+            requests: {cpu: "500m", memory: "512Mi", ephemeral-storage: "512Mi"}
+            limits: {cpu: "2", memory: "2Gi", ephemeral-storage: "2Gi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - {name: work, mountPath: /workspace}
+      volumes:
+        - name: work
+          emptyDir: {sizeLimit: 2Gi}
+{{- end }}

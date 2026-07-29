@@ -1,0 +1,164 @@
+{{- if .Values.api.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agent-api
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: agent-api}
+  minReplicas: {{ .Values.api.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.api.autoscaling.maxReplicas }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.api.autoscaling.scaleUpStabilizationSeconds }}
+      selectPolicy: Max
+      policies:
+        - {type: Percent, value: 100, periodSeconds: 60}
+        - {type: Pods, value: 4, periodSeconds: 60}
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.api.autoscaling.scaleDownStabilizationSeconds }}
+      selectPolicy: Min
+      policies:
+        - {type: Percent, value: 25, periodSeconds: 60}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ .Values.api.autoscaling.targetCPU }}}
+    - type: External
+      external:
+        metric:
+          name: agent_run_accept_rate5m
+          selector:
+            matchLabels: {environment: {{ .Values.global.environment | quote }}}
+        target:
+          type: AverageValue
+          averageValue: {{ .Values.api.autoscaling.targetRequestsPerSecond | quote }}
+---
+{{- end }}
+{{- if .Values.worker.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agent-worker
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: agent-worker}
+  minReplicas: {{ .Values.worker.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.worker.autoscaling.maxReplicas }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.worker.autoscaling.scaleUpStabilizationSeconds }}
+      selectPolicy: Max
+      policies:
+        - {type: Percent, value: 100, periodSeconds: 30}
+        - {type: Pods, value: 10, periodSeconds: 30}
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.worker.autoscaling.scaleDownStabilizationSeconds }}
+      selectPolicy: Min
+      policies:
+        - {type: Percent, value: 20, periodSeconds: 60}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ .Values.worker.autoscaling.targetCPU }}}
+    - type: External
+      external:
+        metric:
+          name: agent_queue_backlog
+          selector:
+            matchLabels:
+              environment: {{ .Values.global.environment | quote }}
+              queue: {{ printf "%s:workflow" .Values.worker.taskQueue | quote }}
+        target: {type: AverageValue, averageValue: {{ .Values.worker.autoscaling.targetBacklogPerPod | quote }}}
+    - type: External
+      external:
+        metric:
+          name: agent_queue_backlog
+          selector:
+            matchLabels:
+              environment: {{ .Values.global.environment | quote }}
+              queue: {{ printf "%s:activity" .Values.worker.taskQueue | quote }}
+        target: {type: AverageValue, averageValue: {{ .Values.worker.autoscaling.targetBacklogPerPod | quote }}}
+    - type: External
+      external:
+        metric:
+          name: agent_queue_oldest_age_seconds
+          selector:
+            matchLabels:
+              environment: {{ .Values.global.environment | quote }}
+              queue: {{ printf "%s:workflow" .Values.worker.taskQueue | quote }}
+        target: {type: Value, value: {{ .Values.worker.autoscaling.targetOldestAgeSeconds | quote }}}
+    - type: External
+      external:
+        metric:
+          name: agent_queue_oldest_age_seconds
+          selector:
+            matchLabels:
+              environment: {{ .Values.global.environment | quote }}
+              queue: {{ printf "%s:activity" .Values.worker.taskQueue | quote }}
+        target: {type: Value, value: {{ .Values.worker.autoscaling.targetOldestAgeSeconds | quote }}}
+---
+{{- end }}
+{{- if .Values.commitWorker.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: commit-worker
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: commit-worker}
+  minReplicas: {{ .Values.commitWorker.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.commitWorker.autoscaling.maxReplicas }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.commitWorker.autoscaling.scaleUpStabilizationSeconds }}
+      selectPolicy: Max
+      policies:
+        - {type: Percent, value: 100, periodSeconds: 30}
+        - {type: Pods, value: 4, periodSeconds: 30}
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.commitWorker.autoscaling.scaleDownStabilizationSeconds }}
+      selectPolicy: Min
+      policies:
+        - {type: Percent, value: 20, periodSeconds: 60}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ .Values.commitWorker.autoscaling.targetCPU }}}
+    - type: External
+      external:
+        metric:
+          name: agent_queue_backlog
+          selector:
+            matchLabels:
+              environment: {{ .Values.global.environment | quote }}
+              queue: {{ printf "%s:workflow" .Values.commitWorker.taskQueue | quote }}
+        target: {type: AverageValue, averageValue: {{ .Values.commitWorker.autoscaling.targetBacklogPerPod | quote }}}
+    - type: External
+      external:
+        metric:
+          name: agent_queue_backlog
+          selector:
+            matchLabels:
+              environment: {{ .Values.global.environment | quote }}
+              queue: {{ printf "%s:activity" .Values.commitWorker.taskQueue | quote }}
+        target: {type: AverageValue, averageValue: {{ .Values.commitWorker.autoscaling.targetBacklogPerPod | quote }}}
+    - type: External
+      external:
+        metric:
+          name: agent_queue_oldest_age_seconds
+          selector:
+            matchLabels:
+              environment: {{ .Values.global.environment | quote }}
+              queue: {{ printf "%s:workflow" .Values.commitWorker.taskQueue | quote }}
+        target: {type: Value, value: {{ .Values.commitWorker.autoscaling.targetOldestAgeSeconds | quote }}}
+    - type: External
+      external:
+        metric:
+          name: agent_queue_oldest_age_seconds
+          selector:
+            matchLabels:
+              environment: {{ .Values.global.environment | quote }}
+              queue: {{ printf "%s:activity" .Values.commitWorker.taskQueue | quote }}
+        target: {type: Value, value: {{ .Values.commitWorker.autoscaling.targetOldestAgeSeconds | quote }}}
+{{- end }}

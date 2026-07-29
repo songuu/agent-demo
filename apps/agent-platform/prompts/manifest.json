@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "registry_version": "2026.07.24-1",
+  "owner": "ai-platform",
+  "prompts": {
+    "classifier": {
+      "version": "1.0.0",
+      "path": "prompts/classifier/1.0.0.md",
+      "sha256": "9df470fdb93df4074a478370c490c7e57d71be11615cf91b30e1fed0414262f9",
+      "status": "approved"
+    },
+    "planner": {
+      "version": "1.0.0",
+      "path": "prompts/planner/1.0.0.md",
+      "sha256": "910969d06f713851c08cd53a13d325cfb8fd9fc91f498b4900bcf99aeb194150",
+      "status": "approved"
+    },
+    "worker": {
+      "version": "1.0.0",
+      "path": "prompts/worker/1.0.0.md",
+      "sha256": "8d10d41123869aa19a0b918c9ce1a97a7d295007b06e0e8067875ce969f685ed",
+      "status": "approved"
+    },
+    "verifier": {
+      "version": "1.0.0",
+      "path": "prompts/verifier/1.0.0.md",
+      "sha256": "5984f6a8356a2376180a677759f359edebd33b0034db60673887b3151c55480b",
+      "status": "approved"
+    },
+    "finalizer": {
+      "version": "1.0.0",
+      "path": "prompts/finalizer/1.0.0.md",
+      "sha256": "9aad85a9c8c5791250678349d20d1a79d86d23774fd91c7778631f9c0c57421a",
+      "status": "approved"
+    }
+  }
+}

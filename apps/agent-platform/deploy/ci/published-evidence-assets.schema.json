@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-platform.example/schemas/published-evidence-assets-1.0.json",
+  "title": "Content-addressed release evidence Artifact publication receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "release_id",
+    "git_sha",
+    "image_digest",
+    "assets",
+    "published_at",
+    "verified"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "kind": {"enum": ["release-evidence-component", "release-evidence"]},
+    "release_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "image_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "assets": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_id",
+          "content_uri",
+          "sha256",
+          "size_bytes",
+          "classification",
+          "release_binding",
+          "retention_policy",
+          "scan_status",
+          "object_version_id",
+          "object_retain_until",
+          "legal_hold_status",
+          "expires_at",
+          "readback_verified"
+        ],
+        "properties": {
+          "artifact_id": {"type": "string", "format": "uuid"},
+          "content_uri": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "size_bytes": {"type": "integer", "minimum": 1},
+          "classification": {"const": "restricted"},
+          "release_binding": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["release_id", "git_sha", "image_digest"],
+            "properties": {
+              "release_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+              },
+              "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+              "image_digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          },
+          "retention_policy": {
+            "type": "string",
+            "pattern": "^release-evidence@1:immutable:[0-9]{3,4}d$"
+          },
+          "scan_status": {"const": "malware_clean"},
+          "object_version_id": {"type": "string", "minLength": 1},
+          "object_retain_until": {"type": "string", "format": "date-time"},
+          "legal_hold_status": {"enum": ["none", "on"]},
+          "expires_at": {"type": "string", "format": "date-time"},
+          "readback_verified": {"const": true}
+        }
+      }
+    },
+    "published_at": {"type": "string", "format": "date-time"},
+    "verified": {"const": true}
+  }
+}

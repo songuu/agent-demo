@@ -1,0 +1,467 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-platform.example/schemas/foundation-attestation-1.0.json",
+  "title": "Production foundation attestation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "environment",
+    "release_id",
+    "git_sha",
+    "image_digest",
+    "terraform",
+    "execution",
+    "provider",
+    "resources",
+    "approvals",
+    "signer",
+    "attested_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "kind": {"const": "production-foundation-attestation"},
+    "environment": {"const": "prod"},
+    "release_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "image_digest": {"$ref": "#/$defs/sha256"},
+    "terraform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "plan_id",
+        "plan_sha256",
+        "plan_uri",
+        "module_source",
+        "module_version",
+        "generated_at"
+      ],
+      "properties": {
+        "version": {"const": "1.9.8"},
+        "plan_id": {"type": "string", "minLength": 8, "maxLength": 256},
+        "plan_sha256": {"$ref": "#/$defs/sha256"},
+        "plan_uri": {"$ref": "#/$defs/digestHttpsUri"},
+        "module_source": {
+          "type": "string",
+          "pattern": "^git::https://[^\\s]+\\?ref=[^\\s]+$"
+        },
+        "module_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "generated_at": {"$ref": "#/$defs/timestamp"}
+      }
+    },
+    "execution": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "read_only",
+            "apply_id",
+            "apply_status",
+            "applied_plan_sha256",
+            "completed_at",
+            "evidence_sha256",
+            "evidence_uri",
+            "resource_readback_sha256",
+            "resource_readback_uri",
+            "tool",
+            "tool_version"
+          ],
+          "properties": {
+            "mode": {"const": "terraform-apply-readback"},
+            "read_only": {"const": false},
+            "apply_id": {"type": "string", "minLength": 8, "maxLength": 256},
+            "apply_status": {"const": "applied"},
+            "applied_plan_sha256": {"$ref": "#/$defs/sha256"},
+            "completed_at": {"$ref": "#/$defs/timestamp"},
+            "evidence_sha256": {"$ref": "#/$defs/sha256"},
+            "evidence_uri": {"$ref": "#/$defs/digestHttpsUri"},
+            "resource_readback_sha256": {"$ref": "#/$defs/sha256"},
+            "resource_readback_uri": {"$ref": "#/$defs/digestHttpsUri"},
+            "tool": {"const": "terraform"},
+            "tool_version": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "read_only",
+            "query_set_id",
+            "completed_at",
+            "evidence_sha256",
+            "evidence_uri",
+            "resource_readback_sha256",
+            "resource_readback_uri",
+            "tool",
+            "tool_version"
+          ],
+          "properties": {
+            "mode": {"const": "cloud-api-read-only"},
+            "read_only": {"const": true},
+            "query_set_id": {"type": "string", "minLength": 8, "maxLength": 256},
+            "completed_at": {"$ref": "#/$defs/timestamp"},
+            "evidence_sha256": {"$ref": "#/$defs/sha256"},
+            "evidence_uri": {"$ref": "#/$defs/digestHttpsUri"},
+            "resource_readback_sha256": {"$ref": "#/$defs/sha256"},
+            "resource_readback_uri": {"$ref": "#/$defs/digestHttpsUri"},
+            "tool": {
+              "enum": ["aws-config", "aws-cli", "gcloud", "azure-cli", "terraform"]
+            },
+            "tool_version": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "account_resource_id", "regions"],
+      "properties": {
+        "name": {"enum": ["aws", "gcp", "azure"]},
+        "account_resource_id": {"$ref": "#/$defs/cloudResourceId"},
+        "regions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$"}
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kubernetes",
+        "postgres",
+        "artifact_storage",
+        "temporal",
+        "opa",
+        "egress",
+        "secrets"
+      ],
+      "properties": {
+        "kubernetes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "resource_id",
+            "region",
+            "private_endpoint",
+            "multi_zone",
+            "workload_identity_enabled"
+          ],
+          "properties": {
+            "resource_id": {"$ref": "#/$defs/cloudResourceId"},
+            "region": {"type": "string", "minLength": 2},
+            "private_endpoint": {"const": true},
+            "multi_zone": {"const": true},
+            "workload_identity_enabled": {"const": true}
+          }
+        },
+        "postgres": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "resource_id",
+            "region",
+            "managed",
+            "high_availability",
+            "multi_zone",
+            "pitr_enabled",
+            "backup_retention_days",
+            "rpo_minutes",
+            "rto_minutes",
+            "tls_required",
+            "kms_key_id",
+            "restore_test_evidence_sha256",
+            "restore_test_evidence_uri",
+            "restore_tested_at"
+          ],
+          "properties": {
+            "resource_id": {"$ref": "#/$defs/cloudResourceId"},
+            "region": {"type": "string", "minLength": 2},
+            "managed": {"const": true},
+            "high_availability": {"const": true},
+            "multi_zone": {"const": true},
+            "pitr_enabled": {"const": true},
+            "backup_retention_days": {"type": "integer", "minimum": 7},
+            "rpo_minutes": {"type": "integer", "minimum": 1, "maximum": 5},
+            "rto_minutes": {"type": "integer", "minimum": 1, "maximum": 30},
+            "tls_required": {"const": true},
+            "kms_key_id": {"$ref": "#/$defs/cloudResourceId"},
+            "restore_test_evidence_sha256": {"$ref": "#/$defs/sha256"},
+            "restore_test_evidence_uri": {"$ref": "#/$defs/digestHttpsUri"},
+            "restore_tested_at": {"$ref": "#/$defs/timestamp"}
+          }
+        },
+        "artifact_storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["final", "staging"],
+          "properties": {
+            "final": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "resource_id",
+                "region",
+                "kms_key_id",
+                "versioning_enabled",
+                "object_lock_enabled",
+                "object_lock_mode",
+                "minimum_retention_days",
+                "public_access_blocked",
+                "tls_only"
+              ],
+              "properties": {
+                "resource_id": {"$ref": "#/$defs/cloudResourceId"},
+                "region": {"type": "string", "minLength": 2},
+                "kms_key_id": {"$ref": "#/$defs/cloudResourceId"},
+                "versioning_enabled": {"const": true},
+                "object_lock_enabled": {"const": true},
+                "object_lock_mode": {"const": "COMPLIANCE"},
+                "minimum_retention_days": {"type": "integer", "minimum": 365},
+                "public_access_blocked": {"const": true},
+                "tls_only": {"const": true}
+              }
+            },
+            "staging": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "resource_id",
+                "region",
+                "kms_key_id",
+                "versioning_enabled",
+                "object_lock_enabled",
+                "public_access_blocked",
+                "tls_only",
+                "abort_incomplete_multipart_days"
+              ],
+              "properties": {
+                "resource_id": {"$ref": "#/$defs/cloudResourceId"},
+                "region": {"type": "string", "minLength": 2},
+                "kms_key_id": {"$ref": "#/$defs/cloudResourceId"},
+                "versioning_enabled": {"const": true},
+                "object_lock_enabled": {"const": false},
+                "public_access_blocked": {"const": true},
+                "tls_only": {"const": true},
+                "abort_incomplete_multipart_days": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1
+                }
+              }
+            }
+          }
+        },
+        "temporal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "resource_id",
+            "regions",
+            "namespace",
+            "tls_enabled",
+            "managed_or_highly_available",
+            "namespace_isolated",
+            "history_archival_enabled",
+            "worker_versioning_enabled"
+          ],
+          "properties": {
+            "resource_id": {"$ref": "#/$defs/serviceResourceId"},
+            "regions": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"type": "string", "minLength": 2}
+            },
+            "namespace": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{2,62}$"
+            },
+            "tls_enabled": {"const": true},
+            "managed_or_highly_available": {"const": true},
+            "namespace_isolated": {"const": true},
+            "history_archival_enabled": {"const": true},
+            "worker_versioning_enabled": {"const": true}
+          }
+        },
+        "opa": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "resource_id",
+            "tls_enabled",
+            "fail_closed",
+            "bundle_digest",
+            "bundle_uri",
+            "bundle_signature_verified"
+          ],
+          "properties": {
+            "resource_id": {"$ref": "#/$defs/serviceResourceId"},
+            "tls_enabled": {"const": true},
+            "fail_closed": {"const": true},
+            "bundle_digest": {"$ref": "#/$defs/sha256"},
+            "bundle_uri": {"$ref": "#/$defs/digestHttpsUri"},
+            "bundle_signature_verified": {"const": true}
+          }
+        },
+        "egress": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "policy_resource_id",
+            "default_deny",
+            "metadata_service_denied",
+            "kubernetes_api_denied",
+            "proxy_resource_ids"
+          ],
+          "properties": {
+            "policy_resource_id": {"$ref": "#/$defs/cloudResourceId"},
+            "default_deny": {"const": true},
+            "metadata_service_denied": {"const": true},
+            "kubernetes_api_denied": {"const": true},
+            "proxy_resource_ids": {
+              "type": "object",
+              "minProperties": 7,
+              "additionalProperties": {"$ref": "#/$defs/cloudResourceId"}
+            }
+          }
+        },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "manager_resource_id",
+            "region",
+            "rotation_enabled",
+            "access_audit_enabled",
+            "jit_admin_enabled",
+            "workload_identity_resource_ids",
+            "secret_resource_ids",
+            "kms_key_resource_ids"
+          ],
+          "properties": {
+            "manager_resource_id": {"$ref": "#/$defs/cloudResourceId"},
+            "region": {"type": "string", "minLength": 2},
+            "rotation_enabled": {"const": true},
+            "access_audit_enabled": {"const": true},
+            "jit_admin_enabled": {"const": true},
+            "workload_identity_resource_ids": {
+              "type": "object",
+              "minProperties": 6,
+              "additionalProperties": {"$ref": "#/$defs/cloudResourceId"}
+            },
+            "secret_resource_ids": {
+              "type": "object",
+              "minProperties": 14,
+              "additionalProperties": {"$ref": "#/$defs/cloudResourceId"}
+            },
+            "kms_key_resource_ids": {
+              "type": "object",
+              "minProperties": 4,
+              "additionalProperties": {"$ref": "#/$defs/cloudResourceId"}
+            }
+          }
+        }
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "release_id",
+          "git_sha",
+          "image_digest",
+          "actor",
+          "role",
+          "decision",
+          "approved_at",
+          "evidence_uri"
+        ],
+        "properties": {
+          "release_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          },
+          "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "image_digest": {"$ref": "#/$defs/sha256"},
+          "actor": {"type": "string", "minLength": 3},
+          "role": {"enum": ["infrastructure-owner", "security", "sre"]},
+          "decision": {"const": "approved"},
+          "approved_at": {"$ref": "#/$defs/timestamp"},
+          "evidence_uri": {"$ref": "#/$defs/digestHttpsUri"}
+        }
+      }
+    },
+    "signer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "issuer"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 3},
+        "issuer": {"$ref": "#/$defs/httpsUri"}
+      }
+    },
+    "attested_at": {"$ref": "#/$defs/timestamp"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {"type": "string", "format": "date-time"},
+    "httpsUri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "digestHttpsUri": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[^\\s]+/sha256:[0-9a-f]{64}$"
+    },
+    "cloudResourceId": {
+      "type": "string",
+      "oneOf": [
+        {
+          "pattern": "^arn:aws(?:-[a-z]+)?:[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        },
+        {"pattern": "^//[a-z0-9.-]+/.+$"},
+        {
+          "pattern": "^/subscriptions/[0-9a-fA-F-]{36}/resourceGroups/[^/]+/providers/.+$"
+        }
+      ]
+    },
+    "serviceResourceId": {
+      "type": "string",
+      "oneOf": [
+        {
+          "pattern": "^arn:aws(?:-[a-z]+)?:[a-z0-9-]+:[a-z0-9-]*:[0-9]{0,12}:.+$"
+        },
+        {"pattern": "^//[a-z0-9.-]+/.+$"},
+        {
+          "pattern": "^/subscriptions/[0-9a-fA-F-]{36}/resourceGroups/[^/]+/providers/.+$"
+        },
+        {"pattern": "^temporal://[^\\s]+$"},
+        {"pattern": "^k8s://[^\\s]+$"}
+      ]
+    }
+  }
+}

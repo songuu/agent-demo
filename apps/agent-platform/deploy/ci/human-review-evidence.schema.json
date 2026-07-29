@@ -1,0 +1,349 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-platform.example/schemas/human-review-evidence.schema.json",
+  "title": "Agent Platform exact-release human review evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_id",
+    "release_id",
+    "candidate_manifest_sha256",
+    "candidate_results_sha256",
+    "status",
+    "sampling",
+    "reviewers",
+    "reviews",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "evidence_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "release_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "candidate_manifest_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "candidate_results_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "status": {
+      "enum": [
+        "approved",
+        "rejected"
+      ]
+    },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy",
+        "population_size",
+        "sample_count",
+        "representative_dimensions"
+      ],
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "population_size": {
+          "type": "integer",
+          "minimum": 50
+        },
+        "sample_count": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 100
+        },
+        "representative_dimensions": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "allOf": [
+            {
+              "contains": {
+                "const": "use_case"
+              }
+            },
+            {
+              "contains": {
+                "const": "risk"
+              }
+            },
+            {
+              "contains": {
+                "const": "dataset"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "reviewers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reviewer_id",
+          "organization",
+          "auth"
+        ],
+        "properties": {
+          "reviewer_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "organization": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "auth": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "method",
+              "subject",
+              "authenticated_at"
+            ],
+            "properties": {
+              "method": {
+                "enum": [
+                  "webauthn",
+                  "fido2",
+                  "piv",
+                  "oidc_mfa",
+                  "saml_mfa"
+                ]
+              },
+              "subject": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "authenticated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      }
+    },
+    "reviews": {
+      "type": "array",
+      "minItems": 50,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sample_id",
+          "subject_sha256",
+          "case_id",
+          "run_id",
+          "use_case",
+          "risk",
+          "dataset",
+          "category",
+          "reviewer_id",
+          "reviewed_at",
+          "rubric",
+          "findings",
+          "decision"
+        ],
+        "properties": {
+          "sample_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "subject_sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "case_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "run_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "use_case": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
+          },
+          "risk": {
+            "enum": [
+              "high",
+              "critical"
+            ]
+          },
+          "dataset": {
+            "enum": [
+              "golden",
+              "edge",
+              "adversarial",
+              "production-sample"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
+          },
+          "reviewer_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rubric": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "correctness",
+              "completeness",
+              "evidence",
+              "uncertainty",
+              "action_quality",
+              "expression"
+            ],
+            "properties": {
+              "correctness": {
+                "$ref": "#/$defs/rubricScore"
+              },
+              "completeness": {
+                "$ref": "#/$defs/rubricScore"
+              },
+              "evidence": {
+                "$ref": "#/$defs/rubricScore"
+              },
+              "uncertainty": {
+                "$ref": "#/$defs/rubricScore"
+              },
+              "action_quality": {
+                "$ref": "#/$defs/rubricScore"
+              },
+              "expression": {
+                "$ref": "#/$defs/rubricScore"
+              }
+            }
+          },
+          "findings": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "severity",
+                "code"
+              ],
+              "properties": {
+                "severity": {
+                  "enum": [
+                    "minor",
+                    "major",
+                    "critical"
+                  ]
+                },
+                "code": {
+                  "type": "string",
+                  "pattern": "^[A-Z][A-Z0-9_]{1,99}$"
+                }
+              }
+            }
+          },
+          "decision": {
+            "enum": [
+              "pass",
+              "fail"
+            ]
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "service_id",
+        "request_id",
+        "evidence_uri",
+        "requested_at",
+        "completed_at",
+        "issued_at",
+        "expires_at"
+      ],
+      "properties": {
+        "service_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "evidence_uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "requested_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "rubricScore": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    }
+  }
+}

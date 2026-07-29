@@ -8,6 +8,8 @@ importers:
 
   .: {}
 
+  apps/agent-platform: {}
+
   apps/spiffe-mtls-agent:
     dependencies:
       '@grpc/grpc-js':

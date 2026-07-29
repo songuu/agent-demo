@@ -1,0 +1,94 @@
+{
+  "uid": "agent-platform-executive",
+  "title": "Agent Platform - Executive",
+  "schemaVersion": 39,
+  "tags": [
+    "agent-platform",
+    "executive"
+  ],
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Run volume by outcome",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(agent_runs_total[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Run acceptance availability",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "agent:run_accept_availability:ratio5m"
+        },
+        {
+          "expr": "sum by (outcome) (rate(agent_run_accept_requests_total[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Full platform cost by component and use case",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:platform_cost_usd:rate1h"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Risk and safety alerts",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (severity, reason) (rate(agent_trajectory_alerts_total[5m]))"
+        },
+        {
+          "expr": "agent:security_event:rate5m"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Approval and verification operations",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:approval_duration:p95"
+        },
+        {
+          "expr": "agent:verification_failure:rate5m"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Run and tenant budget utilization P95",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:budget_utilization:p95"
+        },
+        {
+          "expr": "agent:tenant_budget_utilization:p95"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Full platform cost per successful Run",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:cost_per_success:usd1h"
+        }
+      ]
+    }
+  ]
+}

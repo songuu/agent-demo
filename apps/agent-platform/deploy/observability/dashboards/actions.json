@@ -1,0 +1,100 @@
+{
+  "uid": "agent-platform-actions",
+  "title": "Agent Platform - Actions",
+  "schemaVersion": 39,
+  "tags": [
+    "agent-platform",
+    "actions"
+  ],
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Action lifecycle",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (action_type, risk, status) (rate(agent_actions_total[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Pending approvals and notification latency",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:pending_approvals:max{risk=\"all\"}"
+        },
+        {
+          "expr": "agent:pending_approval_oldest_age:max"
+        },
+        {
+          "expr": "agent:pending_approval_overdue_cleanup_lag:max"
+        },
+        {
+          "expr": "agent:approval_notification_latency:p95"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Commit UNKNOWN",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:action_unknown:rate5m"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Verification failures",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (verifier, reason) (rate(agent_verification_failures_total[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Compensation outcomes",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(agent_actions_total{status=~\"compensating|compensated|compensation_failed\"}[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Confirmed duplicate side effects",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(rate(agent_security_events_total{category=\"duplicate_side_effect\",outcome=\"confirmed\"}[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Approval delivery pipeline",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:approval_webhook_deliveries:max{status=~\"pending|retry|delivering|dead_letter\"}"
+        },
+        {
+          "expr": "agent:pending_approval_notifications_missing:max"
+        },
+        {
+          "expr": "agent:pending_approval_notification_oldest_missing_age:max"
+        },
+        {
+          "expr": "agent:approval_notification_samples:max"
+        }
+      ]
+    }
+  ]
+}

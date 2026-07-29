@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "catalog_id": "platform-cost-rates-2026-07",
+  "currency": "USD",
+  "effective_at": "2026-07-01T00:00:00Z",
+  "rates": {
+    "tool_call_usd": "0.001000000",
+    "sandbox_cpu_second_usd": "0.000011000",
+    "sandbox_memory_gib_second_usd": "0.000002000",
+    "artifact_storage_gib_month_usd": "0.023000000",
+    "artifact_transfer_gib_usd": "0.090000000",
+    "workflow_second_usd": "0.000001000",
+    "observability_event_usd": "0.000010000"
+  },
+  "default_artifact_retention_days": 90
+}

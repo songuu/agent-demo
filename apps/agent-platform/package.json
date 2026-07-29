@@ -1,0 +1,16 @@
+{
+  "name": "@agent-demo/agent-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production Agent platform control plane and bounded execution runtime.",
+  "scripts": {
+    "typecheck": "uv run --frozen mypy src",
+    "test": "uv run --frozen python -m pytest",
+    "build": "uv run --frozen python -m compileall -q src && uv build",
+    "lint": "uv run --frozen ruff check src tests && uv run --frozen bandit -q -c pyproject.toml -r src",
+    "format:check": "uv run --frozen ruff format --check src tests",
+    "api": "uv run --frozen agent-platform-api",
+    "agent-worker": "uv run --frozen agent-platform-agent-worker",
+    "commit-worker": "uv run --frozen agent-platform-commit-worker"
+  }
+}

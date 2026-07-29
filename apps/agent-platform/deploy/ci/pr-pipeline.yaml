@@ -1,0 +1,57 @@
+schema_version: "1.1"
+name: agent-platform-pr
+fail_fast: true
+stages:
+  - id: lint-and-type
+    commands:
+      - uv run --frozen ruff check src tests scripts deploy/ci
+      - uv run --frozen ruff format --check src tests scripts deploy/ci
+      - uv run --frozen mypy src
+      - uv run --frozen bandit -c pyproject.toml -r src
+  - id: unit
+    commands:
+      - uv run --frozen pytest tests/unit --cov=agent_platform --cov-branch --cov-report=xml:.artifacts/coverage.xml --cov-fail-under=85 --junitxml=.artifacts/unit-junit.xml
+  - id: security-static
+    required_findings:
+      critical: 0
+      high: 0
+    commands:
+      - gitleaks git --no-banner --redact --verbose .
+      - uv export --frozen --no-dev --no-emit-project --format requirements-txt --output-file .artifacts/requirements.txt
+      - uv run --frozen pip-audit --strict --requirement .artifacts/requirements.txt --format json --output .artifacts/dependency-audit.json
+      - syft dir:. -o spdx-json=.artifacts/source-sbom.spdx.json
+      - trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 .
+  - id: integration
+    services:
+      - postgres:16.9-alpine@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
+      - temporalio/auto-setup:1.27.2@sha256:b44cbfeb43dbeae42db113b44fb8414c3452f05643b3d6b1592f955277d73526
+      - minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
+      - openpolicyagent/opa:1.5.1-static@sha256:72c5186ef74bc7a88faf88204109476be41cdc392ff1de722f7d8ecb08f18c4d
+    commands:
+      - uv run --frozen alembic upgrade head
+      - uv run --frozen pytest tests/integration tests/contract --junitxml=.artifacts/integration-junit.xml
+      - uv run --frozen python deploy/ci/validate_junit_no_skips.py --junit .artifacts/integration-junit.xml --suite-name integration-and-contract --minimum-tests 10 --output .artifacts/integration-required-gate.json
+  - id: workflow-replay
+    commands:
+      - uv run --frozen python scripts/replay_workflow_histories.py --history-dir .artifacts/workflow-histories --minimum-histories 2 --output .artifacts/workflow-replay.json
+  - id: agent-evals-smoke
+    dataset: evals/datasets/offline-smoke.jsonl
+    hard_gates: true
+    commands:
+      - uv run --frozen python evals/run_release_evals.py --mode offline --manifest deploy/ci/agent-eval-smoke-manifest.json --output .artifacts/agent-eval-smoke.json
+  - id: build
+    outputs: [signed-image, sbom, provenance]
+    commands:
+      - docker buildx build --provenance=mode=max --sbom=true --tag "${IMAGE_REFERENCE}" --push .
+      - trivy image --severity HIGH,CRITICAL --exit-code 1 "${IMAGE_REFERENCE}"
+      - cosign sign --yes "${IMAGE_REFERENCE}"
+  - id: preview-policy
+    commands:
+      - opa check --strict policies
+      - opa test policies tests/policy
+      - terraform -chdir=deploy/terraform fmt -check -recursive
+      - terraform -chdir=deploy/terraform init -backend=false -input=false -lockfile=readonly
+      - terraform -chdir=deploy/terraform validate -no-color
+      - terraform -chdir=deploy/terraform test -no-color
+      - helm template agent-platform deploy/helm/agent-platform > .artifacts/agent-platform.yaml
+      - conftest test .artifacts/agent-platform.yaml deploy/terraform --policy deploy/ci/conftest

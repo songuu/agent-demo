@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agent-platform-migration
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels: {app: agent-platform-migration, plane: migration}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: db-migrator
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: migration
+          image: "{{ .Values.global.imageRepository }}@{{ .Values.global.imageDigest }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["alembic", "upgrade", "head"]
+          env:
+            - name: AGENT_PROCESS_ROLE
+              value: "migration"
+            - name: AGENT_DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.databaseSecretName }}, key: migration-dsn}
+          resources:
+            requests: {cpu: "100m", memory: "256Mi"}
+            limits: {cpu: "1", memory: "1Gi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}

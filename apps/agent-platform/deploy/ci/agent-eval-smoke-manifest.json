@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "suite_version": "2026.07.24-ci-smoke-1",
+  "owner": "qa-eval",
+  "datasets": {
+    "smoke": {
+      "path": "evals/datasets/offline-smoke.jsonl",
+      "purpose": "Fast deterministic Agent hard-control validation"
+    }
+  }
+}

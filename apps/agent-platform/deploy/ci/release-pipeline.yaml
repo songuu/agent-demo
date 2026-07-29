@@ -1,0 +1,47 @@
+schema_version: "1.0"
+name: agent-platform-release
+promotion:
+  build_once: true
+  immutable_digest_only: true
+  rebuild_in_prod: false
+stages:
+  - id: build-and-sign
+    outputs: [image_digest, sbom, provenance, signature]
+  - id: staging
+    gates:
+      - database_compatibility
+      - e2e
+      - full_evals
+      - red_team
+      - fault_injection
+      - workflow_replay
+  - id: evidence
+    required:
+      - git_sha
+      - image_digest
+      - sbom
+      - provenance
+      - prompt_versions
+      - tool_versions
+      - policy_bundle_version
+      - contract_schema
+      - eval_results
+      - approvals
+  - id: canary
+    policy: deploy/ci/canary-policy.yaml
+    dimensions: [tenant, use_case, traffic]
+    one_variable_at_a_time: true
+  - id: close
+    requires:
+      - observation_window_complete
+      - success_criteria_met
+      - rollback_owner_acknowledged
+release_evidence:
+  git_sha: required
+  image_digest: required
+  sbom: required
+  prompt_versions: required
+  tool_versions: required
+  policy_bundle_version: required
+  eval_results: required
+  approvals: required

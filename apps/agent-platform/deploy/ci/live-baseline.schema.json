@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-platform.example/schemas/live-baseline-1.0.json",
+  "title": "Signed live release baseline",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "environment",
+    "prior_release",
+    "sampling",
+    "metrics",
+    "raw_evidence",
+    "signer",
+    "issued_at",
+    "expires_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "kind": {"const": "live-release-baseline"},
+    "environment": {"const": "production"},
+    "prior_release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release_id", "git_sha", "image_digest"],
+      "properties": {
+        "release_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "image_digest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["window_started_at", "window_ended_at", "sample_count"],
+      "properties": {
+        "window_started_at": {"$ref": "#/$defs/timestamp"},
+        "window_ended_at": {"$ref": "#/$defs/timestamp"},
+        "sample_count": {"type": "integer", "minimum": 50}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "production_golden_success_rate",
+        "p95_latency_seconds",
+        "average_cost_per_success_usd"
+      ],
+      "properties": {
+        "production_golden_success_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "p95_latency_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "average_cost_per_success_usd": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "raw_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "uri"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "uri": {"$ref": "#/$defs/digestHttpsUri"}
+      }
+    },
+    "signer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "issuer"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 8, "maxLength": 512},
+        "issuer": {"type": "string", "format": "uri", "pattern": "^https://"}
+      }
+    },
+    "issued_at": {"$ref": "#/$defs/timestamp"},
+    "expires_at": {"$ref": "#/$defs/timestamp"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "digestHttpsUri": {
+      "type": "string",
+      "pattern": "^https://[^\\s@?#]+/sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

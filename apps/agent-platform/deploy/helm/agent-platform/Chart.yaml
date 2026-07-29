@@ -1,0 +1,7 @@
+apiVersion: v2
+name: agent-platform
+description: Bounded Agent execution platform with an isolated commit plane.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.30.0-0"

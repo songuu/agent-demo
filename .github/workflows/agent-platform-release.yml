@@ -1,0 +1,1805 @@
+name: Agent Platform release
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/agent-platform/**"
+      - ".github/workflows/agent-platform-release.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+  push:
+    tags:
+      - "agent-platform-v*"
+  workflow_dispatch:
+    inputs:
+      canary_minimum_observation_seconds:
+        description: Minimum total external canary observation window
+        required: true
+        default: "60300"
+        type: string
+
+concurrency:
+  group: agent-platform-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  HELM_VERSION: "v4.2.3"
+  KUBECTL_VERSION: "v1.36.2"
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.12.4"
+  PYTHON_VERSION: "3.12"
+  TERRAFORM_VERSION: "1.9.8"
+  UV_VERSION: "0.8.4"
+  PLATFORM_ROOT: apps/agent-platform
+  RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  quality:
+    name: Quality, policy, deployment, and offline eval gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out immutable release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Restrict release source
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            if [ "${GITHUB_BASE_REF}" != "main" ]; then
+              echo "::error::Pull-request validation must target main"
+              exit 1
+            fi
+            exit 0
+          fi
+
+          case "${GITHUB_REF}" in
+            refs/tags/agent-platform-v*) ;;
+            *)
+              echo "::error::Releases require an agent-platform-v* signed annotated tag"
+              exit 1
+              ;;
+          esac
+
+          if ! [[ "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::GITHUB_SHA must be a full lowercase commit SHA"
+            exit 1
+          fi
+          git fetch --no-tags --prune origin \
+            "+refs/heads/main:refs/remotes/origin/main"
+          checked_out_sha="$(git rev-parse --verify 'HEAD^{commit}')"
+          if [ "${checked_out_sha}" != "${GITHUB_SHA}" ]; then
+            echo "::error::Checked-out commit ${checked_out_sha} does not match GITHUB_SHA ${GITHUB_SHA}"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor \
+            "${GITHUB_SHA}" "refs/remotes/origin/main"; then
+            echo "::error::Release commit ${GITHUB_SHA} is not an ancestor of origin/main"
+            exit 1
+          fi
+
+          tag_name="${GITHUB_REF#refs/tags/}"
+          encoded_tag_name="$(jq -nr --arg tag "${tag_name}" '$tag | @uri')"
+          github_api_headers=(
+            --header "Accept: application/vnd.github+json"
+            --header "Authorization: Bearer ${GITHUB_TOKEN}"
+            --header "X-GitHub-Api-Version: 2026-03-10"
+          )
+          ref_payload="$(
+            curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+              "${github_api_headers[@]}" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/ref/tags/${encoded_tag_name}"
+          )"
+          tag_object_type="$(jq -r '.object.type // ""' <<<"${ref_payload}")"
+          tag_object_sha="$(jq -r '.object.sha // ""' <<<"${ref_payload}")"
+          if [ "${tag_object_type}" != "tag" ]; then
+            echo "::error::Tag ${tag_name} must be annotated; GitHub ref object type was ${tag_object_type:-missing}"
+            exit 1
+          fi
+          if ! [[ "${tag_object_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::GitHub returned an invalid tag object SHA for ${tag_name}"
+            exit 1
+          fi
+
+          tag_payload="$(
+            curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+              "${github_api_headers[@]}" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/git/tags/${tag_object_sha}"
+          )"
+          resolved_tag_name="$(jq -r '.tag // ""' <<<"${tag_payload}")"
+          resolved_tag_sha="$(jq -r '.sha // ""' <<<"${tag_payload}")"
+          tag_target_type="$(jq -r '.object.type // ""' <<<"${tag_payload}")"
+          tag_target_sha="$(jq -r '.object.sha // ""' <<<"${tag_payload}")"
+          verification_verified="$(jq -r '.verification.verified // false' <<<"${tag_payload}")"
+          verification_reason="$(jq -r '.verification.reason // ""' <<<"${tag_payload}")"
+
+          if [ "${resolved_tag_name}" != "${tag_name}" ]; then
+            echo "::error::GitHub tag object name ${resolved_tag_name:-missing} does not match ${tag_name}"
+            exit 1
+          fi
+          if [ "${resolved_tag_sha}" != "${tag_object_sha}" ]; then
+            echo "::error::GitHub tag object SHA changed while resolving ${tag_name}"
+            exit 1
+          fi
+          if [ "${tag_target_type}" != "commit" ]; then
+            echo "::error::Annotated tag ${tag_name} must target a commit, not ${tag_target_type:-missing}"
+            exit 1
+          fi
+          if [ "${tag_target_sha}" != "${GITHUB_SHA}" ]; then
+            echo "::error::Annotated tag ${tag_name} targets ${tag_target_sha:-missing}, expected ${GITHUB_SHA}"
+            exit 1
+          fi
+          if [ "${verification_verified}" != "true" ]; then
+            echo "::error::GitHub did not verify the signature for annotated tag ${tag_name}"
+            exit 1
+          fi
+          if [ "${verification_reason}" != "valid" ]; then
+            echo "::error::GitHub tag verification reason for ${tag_name} was ${verification_reason:-missing}, expected valid"
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Create release preflight token
+        if: github.event_name != 'pull_request'
+        id: release-preflight-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.AGENT_PLATFORM_PREFLIGHT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AGENT_PLATFORM_PREFLIGHT_APP_PRIVATE_KEY }}
+          permission-actions: read
+          permission-administration: read
+          permission-environments: read
+
+      - name: Validate external release prerequisites
+        if: always() && github.event_name != 'pull_request'
+        env:
+          AGENT_PLATFORM_PREFLIGHT_GITHUB_TOKEN: ${{ steps.release-preflight-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${PLATFORM_ROOT}/.artifacts"
+          python "${PLATFORM_ROOT}/deploy/ci/validate_external_release_preflight.py" \
+            --requirements "${PLATFORM_ROOT}/deploy/ci/external-release-preflight.json" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --release-tag "${GITHUB_REF_NAME}" \
+            --git-sha "${GITHUB_SHA}" \
+            --release-id "${RELEASE_ID}" \
+            --server-url "${GITHUB_SERVER_URL}" \
+            --api-url "${GITHUB_API_URL}" \
+            --token-env AGENT_PLATFORM_PREFLIGHT_GITHUB_TOKEN \
+            --output "${PLATFORM_ROOT}/.artifacts/external-release-preflight.json"
+
+      - name: Upload external release preflight report
+        if: always() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: external-release-preflight-${{ env.RELEASE_ID }}
+          path: apps/agent-platform/.artifacts/external-release-preflight.json
+          if-no-files-found: error
+          retention-days: 365
+
+      - name: Enable pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: apps/agent-platform/uv.lock
+
+      - name: Set up Helm
+        uses: Azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Set up kubectl
+        uses: Azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5
+        with:
+          version: ${{ env.KUBECTL_VERSION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Install locked dependencies
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          uv sync --directory "${PLATFORM_ROOT}" --frozen --extra dev
+
+      - name: Run repository quality gates
+        run: |
+          set -euo pipefail
+          pnpm --filter @agent-demo/agent-platform lint
+          pnpm --filter @agent-demo/agent-platform format:check
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Run explicit Python static-analysis gates
+        working-directory: apps/agent-platform
+        run: |
+          set -euo pipefail
+          uv run --frozen ruff check src tests scripts deploy/ci
+          uv run --frozen ruff format --check src tests scripts deploy/ci
+          uv run --frozen mypy src
+          uv run --frozen bandit -c pyproject.toml -r src
+
+      - name: Enforce 85 percent unit coverage
+        working-directory: apps/agent-platform
+        run: |
+          set -euo pipefail
+          mkdir -p ../../.artifacts/quality
+          uv run --frozen python -m pytest tests/unit \
+            --cov=agent_platform \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=xml:../../.artifacts/quality/coverage.xml \
+            --cov-fail-under=85 \
+            --junitxml=../../.artifacts/quality/unit-junit.xml
+
+      - name: Scan the complete Git history for secrets
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/workspace:ro" \
+            ghcr.io/gitleaks/gitleaks:v8.28.0@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854 \
+            git --no-banner --redact --verbose /workspace
+
+      - name: Audit locked production dependencies
+        working-directory: apps/agent-platform
+        run: |
+          set -euo pipefail
+          uv export --frozen --no-dev --no-emit-project \
+            --format requirements-txt \
+            --output-file ../../.artifacts/quality/requirements.txt
+          uv run --frozen pip-audit \
+            --strict \
+            --requirement ../../.artifacts/quality/requirements.txt \
+            --format json \
+            --output ../../.artifacts/quality/dependency-audit.json
+
+      - name: Generate source SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: apps/agent-platform
+          format: spdx-json
+          output-file: .artifacts/quality/source-sbom.spdx.json
+
+      - name: Scan source dependencies, secrets, and configuration
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: apps/agent-platform
+          skip-dirs: apps/agent-platform/.venv,apps/agent-platform/.artifacts
+          timeout: 15m
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: 1
+
+      - name: Validate OPA policies
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/workspace:ro" \
+            --workdir /workspace/apps/agent-platform \
+            openpolicyagent/opa:1.5.1-static@sha256:72c5186ef74bc7a88faf88204109476be41cdc392ff1de722f7d8ecb08f18c4d \
+            check --strict policies
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/workspace:ro" \
+            --workdir /workspace/apps/agent-platform \
+            openpolicyagent/opa:1.5.1-static@sha256:72c5186ef74bc7a88faf88204109476be41cdc392ff1de722f7d8ecb08f18c4d \
+            test policies tests/policy
+
+      - name: Validate deployment assets
+        run: |
+          set -euo pipefail
+          helm lint "${PLATFORM_ROOT}/deploy/helm/agent-platform"
+          helm template agent-platform \
+            "${PLATFORM_ROOT}/deploy/helm/agent-platform" \
+            --set-string global.environment=staging \
+            --set-string config.evalFaultHarnessUrl=https://eval-fault-harness.staging.example.invalid \
+            --set-string secrets.evalFaultHarnessSecretName=agent-platform-eval-fault-harness \
+            --set-string secrets.evalFaultHarnessTokenKey=token \
+            > "${RUNNER_TEMP}/agent-platform-staging.yaml"
+          kubectl apply --dry-run=client \
+            --validate=false \
+            --filename "${RUNNER_TEMP}/agent-platform-staging.yaml"
+          kubectl kustomize "${PLATFORM_ROOT}/deploy/kustomize/overlays/staging" \
+            > "${RUNNER_TEMP}/kustomize-staging.yaml"
+          kubectl kustomize "${PLATFORM_ROOT}/deploy/kustomize/overlays/prod" \
+            > "${RUNNER_TEMP}/kustomize-production.yaml"
+          docker compose \
+            --file "${PLATFORM_ROOT}/deploy/docker/docker-compose.yml" \
+            config --quiet
+
+      - name: Run Conftest against rendered deployment manifests
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}/${PLATFORM_ROOT}/deploy/ci/conftest:/policy:ro" \
+            --volume "${GITHUB_WORKSPACE}/${PLATFORM_ROOT}/deploy/terraform:/terraform:ro" \
+            --volume "${RUNNER_TEMP}:/iac:ro" \
+            openpolicyagent/conftest:v0.62.0@sha256:6182c0c61e83ae6522ed29e5084ac5cce4c88cd0aa26ffb1c6fc57bb34e9daa9 \
+            test \
+              /iac/agent-platform-staging.yaml \
+              /iac/kustomize-staging.yaml \
+              /iac/kustomize-production.yaml \
+              /terraform \
+              --policy /policy
+
+      - name: Validate Terraform provider-neutral release contract
+        run: |
+          set -euo pipefail
+          mkdir -p .artifacts/quality
+          terraform fmt -check -recursive "${PLATFORM_ROOT}/deploy/terraform"
+          terraform -chdir="${PLATFORM_ROOT}/deploy/terraform" \
+            init -backend=false -input=false -lockfile=readonly
+          terraform -chdir="${PLATFORM_ROOT}/deploy/terraform" validate -no-color
+          terraform -chdir="${PLATFORM_ROOT}/deploy/terraform" test -no-color \
+            | tee .artifacts/quality/terraform-test.txt
+
+      - name: Start required integration services
+        run: |
+          set -euo pipefail
+          compose_file="${PLATFORM_ROOT}/deploy/docker/docker-compose.yml"
+          docker compose --file "${compose_file}" --profile local \
+            up --detach --wait postgres temporal minio opa
+          docker compose --file "${compose_file}" --profile local \
+            run --rm minio-init
+
+      - name: Run required integration and contract suites without skips
+        working-directory: apps/agent-platform
+        env:
+          AGENT_DATABASE_URL: postgresql+asyncpg://agent:agent-local-only@127.0.0.1:5432/agent_platform
+          AGENT_TEST_DATABASE_URL: postgresql+asyncpg://agent:agent-local-only@127.0.0.1:5432/agent_platform
+          AGENT_TEST_TEMPORAL_ADDRESS: 127.0.0.1:7233
+          AGENT_TEST_MINIO_URL: http://127.0.0.1:9000
+          AGENT_TEST_MINIO_ACCESS_KEY: minio
+          AGENT_TEST_MINIO_SECRET_KEY: minio-local-only
+          AGENT_TEST_MINIO_BUCKET: agent-platform-local
+          AGENT_TEST_OPA_URL: http://127.0.0.1:8181
+          AGENT_WORKFLOW_HISTORY_DIR: ../../.artifacts/quality/workflow-histories
+        run: |
+          set -euo pipefail
+          uv run --frozen alembic upgrade head
+          uv run --frozen python -m pytest tests/integration tests/contract \
+            --junitxml=../../.artifacts/quality/integration-junit.xml
+          uv run --frozen python deploy/ci/validate_junit_no_skips.py \
+            --junit ../../.artifacts/quality/integration-junit.xml \
+            --suite-name integration-and-contract \
+            --minimum-tests 10 \
+            --output ../../.artifacts/quality/integration-required-gate.json
+          uv run --frozen python scripts/replay_workflow_histories.py \
+            --history-dir ../../.artifacts/quality/workflow-histories \
+            --minimum-histories 2 \
+            --output ../../.artifacts/quality/workflow-replay.json
+
+      - name: Stop required integration services
+        if: always()
+        run: |
+          docker compose \
+            --file "${PLATFORM_ROOT}/deploy/docker/docker-compose.yml" \
+            --profile local down --volumes
+
+      - name: Run fail-closed Agent eval smoke
+        working-directory: apps/agent-platform
+        run: |
+          set -euo pipefail
+          uv run --frozen python evals/run_release_evals.py \
+            --mode offline \
+            --manifest deploy/ci/agent-eval-smoke-manifest.json \
+            --output ../../.artifacts/quality/agent-eval-smoke.json
+
+      - name: Run fail-closed offline release eval
+        working-directory: apps/agent-platform
+        run: |
+          set -euo pipefail
+          mkdir -p ../../.artifacts/quality
+          uv run --frozen python evals/run_release_evals.py \
+            --mode offline \
+            --output ../../.artifacts/quality/offline-release-evals.json
+
+      - name: Upload offline gate evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: agent-platform-offline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/quality
+          if-no-files-found: error
+          retention-days: 90
+
+  pr_image:
+    name: Build, scan, attest, and sign PR OCI image
+    if: github.event_name == 'pull_request'
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out immutable PR merge source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build immutable OCI archive with BuildKit attestations
+        id: pr_build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: apps/agent-platform
+          file: apps/agent-platform/deploy/docker/Dockerfile
+          platforms: linux/amd64
+          push: false
+          outputs: type=oci,dest=${{ runner.temp }}/agent-platform-pr.oci.tar
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=agent-platform-pr
+          cache-to: type=gha,mode=max,scope=agent-platform-pr
+
+      - name: Validate immutable PR build output
+        env:
+          IMAGE_DIGEST: ${{ steps.pr_build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::PR OCI build did not return an immutable digest"
+            exit 1
+          fi
+          mkdir -p .artifacts/pr-image
+          cp "${RUNNER_TEMP}/agent-platform-pr.oci.tar" \
+            .artifacts/pr-image/agent-platform-pr.oci.tar
+          printf '%s\n' "${IMAGE_DIGEST}" > .artifacts/pr-image/image-manifest-digest.txt
+          printf 'sha256:%s\n' \
+            "$(sha256sum .artifacts/pr-image/agent-platform-pr.oci.tar | cut -d ' ' -f 1)" \
+            > .artifacts/pr-image/oci-archive-digest.txt
+
+      - name: Verify embedded BuildKit provenance and SPDX attestations
+        working-directory: apps/agent-platform
+        run: |
+          set -euo pipefail
+          python scripts/verify_oci_attestations.py \
+            --archive ../../.artifacts/pr-image/agent-platform-pr.oci.tar \
+            --output ../../.artifacts/pr-image/oci-attestations.json
+
+      - name: Scan exact PR OCI archive for HIGH and CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          input: .artifacts/pr-image/agent-platform-pr.oci.tar
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: 1
+          format: json
+          output: .artifacts/pr-image/trivy-image.json
+
+      - name: Install Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0
+
+      - name: Generate independent SPDX SBOM from exact OCI archive
+        run: |
+          set -euo pipefail
+          "${{ steps.syft.outputs.cmd }}" \
+            "oci-archive:.artifacts/pr-image/agent-platform-pr.oci.tar" \
+            --output spdx-json=.artifacts/pr-image/sbom.spdx.json
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign and verify exact PR OCI archive
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --bundle .artifacts/pr-image/oci-archive.sigstore.json \
+            .artifacts/pr-image/agent-platform-pr.oci.tar
+          cosign verify-blob \
+            --bundle .artifacts/pr-image/oci-archive.sigstore.json \
+            --certificate-identity-regexp \
+              "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/agent-platform-release.yml@refs/(pull|heads)/.+$" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            .artifacts/pr-image/agent-platform-pr.oci.tar
+
+      - name: Upload signed PR image evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: agent-platform-pr-image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/pr-image
+          if-no-files-found: error
+          retention-days: 30
+  build_image:
+    name: Build, push, sign, and attest immutable image
+    if: github.event_name != 'pull_request'
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    outputs:
+      image_digest: ${{ steps.build.outputs.digest }}
+      image_repository: ${{ steps.image.outputs.repository }}
+      tool_catalog_id: ${{ steps.catalog.outputs.catalog_id }}
+      tool_catalog_digest: ${{ steps.catalog.outputs.catalog_digest }}
+    steps:
+      - name: Check out immutable release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Resolve immutable Tool Catalog identity
+        id: catalog
+        run: |
+          set -euo pipefail
+          catalog="${PLATFORM_ROOT}/deploy/catalogs/tool-catalog.v1.json"
+          catalog_id="$(jq -er '.catalog_id | strings | select(length > 0)' "${catalog}")"
+          catalog_digest="sha256:$(sha256sum "${catalog}" | cut -d ' ' -f 1)"
+          echo "catalog_id=${catalog_id}" >> "${GITHUB_OUTPUT}"
+          echo "catalog_digest=${catalog_digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve lowercase image repository
+        id: image
+        run: |
+          set -euo pipefail
+          image_repository="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/agent-platform"
+          echo "repository=${image_repository}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push once
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: apps/agent-platform
+          file: apps/agent-platform/deploy/docker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.repository }}:${{ github.sha }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=agent-platform
+          cache-to: type=gha,mode=max,scope=agent-platform
+
+      - name: Validate immutable build output
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Build did not return an immutable sha256 digest"
+            exit 1
+          fi
+
+      - name: Prepare supply-chain evidence directory
+        run: mkdir -p .artifacts/supply-chain
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: .artifacts/supply-chain/sbom.spdx.json
+
+      - name: Scan the exact image digest for HIGH and CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.image.outputs.repository }}@${{ steps.build.outputs.digest }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: 1
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign and verify the exact image digest
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p .artifacts/supply-chain
+          image_reference="${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          cosign sign --yes "${image_reference}"
+          cosign verify \
+            --certificate-identity-regexp \
+              "^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/agent-platform-release.yml@refs/(heads|tags)/.+$" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${image_reference}" \
+            | tee .artifacts/supply-chain/cosign-verification.json
+
+      - name: Create GitHub build provenance attestation
+        id: provenance_attestation
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        with:
+          subject-name: ${{ steps.image.outputs.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Create GitHub SBOM attestation
+        id: sbom_attestation
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4
+        with:
+          subject-name: ${{ steps.image.outputs.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: .artifacts/supply-chain/sbom.spdx.json
+          push-to-registry: true
+
+      - name: Record immutable release request
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance_attestation.outputs['bundle-path'] }}
+          SBOM_BUNDLE: ${{ steps.sbom_attestation.outputs['bundle-path'] }}
+        run: |
+          set -euo pipefail
+          cp "${PROVENANCE_BUNDLE}" .artifacts/supply-chain/provenance.attestation.json
+          cp "${SBOM_BUNDLE}" .artifacts/supply-chain/sbom.attestation.json
+          jq -n \
+            --arg release_id "${RELEASE_ID}" \
+            --arg git_sha "${GITHUB_SHA}" \
+            --arg image_repository "${IMAGE_REPOSITORY}" \
+            --arg image_digest "${IMAGE_DIGEST}" \
+            --arg canary_policy "deploy/ci/canary-policy.yaml@1.1" \
+            '{
+              schema_version: "1.0",
+              release_id: $release_id,
+              git_sha: $git_sha,
+              image_repository: $image_repository,
+              image_digest: $image_digest,
+              canary_policy: $canary_policy
+            }' > .artifacts/supply-chain/release-request.json
+
+      - name: Upload supply-chain evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: agent-platform-supply-chain-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/supply-chain
+          if-no-files-found: error
+          retention-days: 365
+
+  staging:
+    name: Deploy exact digest to staging and run live gates
+    needs: [quality, build_image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    environment: agent-platform-staging
+    env:
+      IMAGE_DIGEST: ${{ needs.build_image.outputs.image_digest }}
+      IMAGE_REPOSITORY: ${{ needs.build_image.outputs.image_repository }}
+      TOOL_CATALOG_ID: ${{ needs.build_image.outputs.tool_catalog_id }}
+      TOOL_CATALOG_DIGEST: ${{ needs.build_image.outputs.tool_catalog_digest }}
+      KUBECONFIG: ${{ runner.temp }}/agent-platform-staging-kubeconfig
+      LIVE_BASELINE_URI: ${{ vars.AGENT_PLATFORM_STAGING_LIVE_BASELINE_URI }}
+      LIVE_BASELINE_SIGNER_IDENTITY: ${{ vars.AGENT_PLATFORM_STAGING_LIVE_BASELINE_SIGNER_IDENTITY }}
+      LIVE_BASELINE_SIGNER_ISSUER: ${{ vars.AGENT_PLATFORM_STAGING_LIVE_BASELINE_SIGNER_ISSUER }}
+      AGENT_PLATFORM_EVAL_FAULT_RECEIPT_PUBLIC_KEY_B64: ${{ vars.AGENT_PLATFORM_EVAL_FAULT_RECEIPT_PUBLIC_KEY_B64 }}
+      AGENT_PLATFORM_EVAL_FAULT_RECEIPT_SIGNER_IDENTITY: ${{ vars.AGENT_PLATFORM_EVAL_FAULT_RECEIPT_SIGNER_IDENTITY }}
+      EVAL_FAULT_HARNESS_URL: ${{ vars.AGENT_PLATFORM_EVAL_FAULT_HARNESS_URL }}
+      EVAL_FAULT_HARNESS_SECRET_NAME: ${{ vars.AGENT_PLATFORM_EVAL_FAULT_HARNESS_SECRET_NAME }}
+      EVAL_FAULT_HARNESS_TOKEN_KEY: ${{ vars.AGENT_PLATFORM_EVAL_FAULT_HARNESS_TOKEN_KEY }}
+      HUMAN_REVIEW_SERVICE_URL: ${{ vars.AGENT_PLATFORM_STAGING_HUMAN_REVIEW_SERVICE_URL }}
+      PLATFORM_BASE_URL: ${{ vars.AGENT_PLATFORM_STAGING_URL }}
+      PLATFORM_NAMESPACE: ${{ vars.AGENT_PLATFORM_NAMESPACE }}
+      OBSERVABILITY_NAMESPACE: ${{ vars.AGENT_PLATFORM_OBSERVABILITY_NAMESPACE }}
+      OTEL_SERVICE: ${{ vars.AGENT_PLATFORM_OTEL_SERVICE }}
+      GRAFANA_NAMESPACE: ${{ vars.AGENT_PLATFORM_GRAFANA_NAMESPACE }}
+      GRAFANA_DEPLOYMENT: ${{ vars.AGENT_PLATFORM_GRAFANA_DEPLOYMENT }}
+      GRAFANA_API_URL: ${{ vars.AGENT_PLATFORM_GRAFANA_API_URL }}
+      ALERTMANAGER_API_URL: ${{ vars.AGENT_PLATFORM_ALERTMANAGER_API_URL }}
+      ALERT_DELIVERY_RECEIPT_BASE_URL: ${{ vars.AGENT_PLATFORM_ALERT_DELIVERY_RECEIPT_BASE_URL }}
+    steps:
+      - name: Check out immutable release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Download offline eval evidence
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: agent-platform-offline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/quality
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Set up Helm
+        uses: Azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Set up kubectl
+        uses: Azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5
+        with:
+          version: ${{ env.KUBECTL_VERSION }}
+
+      - name: Install cosign for live baseline verification
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Install locked staging verifier
+        run: uv sync --directory "${PLATFORM_ROOT}" --frozen --extra dev
+
+      - name: Materialize short-lived staging inputs
+        env:
+          HELM_VALUES_B64: ${{ secrets.AGENT_PLATFORM_STAGING_HELM_VALUES_B64 }}
+          KUBECONFIG_B64: ${{ secrets.AGENT_PLATFORM_STAGING_KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          for variable in \
+            HELM_VALUES_B64 \
+            KUBECONFIG_B64 \
+            LIVE_BASELINE_URI \
+            LIVE_BASELINE_SIGNER_IDENTITY \
+            LIVE_BASELINE_SIGNER_ISSUER \
+            AGENT_PLATFORM_EVAL_FAULT_RECEIPT_PUBLIC_KEY_B64 \
+            AGENT_PLATFORM_EVAL_FAULT_RECEIPT_SIGNER_IDENTITY \
+            EVAL_FAULT_HARNESS_URL \
+            EVAL_FAULT_HARNESS_SECRET_NAME \
+            EVAL_FAULT_HARNESS_TOKEN_KEY \
+            HUMAN_REVIEW_SERVICE_URL \
+            PLATFORM_BASE_URL \
+            GRAFANA_API_URL \
+            ALERTMANAGER_API_URL \
+            ALERT_DELIVERY_RECEIPT_BASE_URL
+          do
+            if [ -z "${!variable:-}" ]; then
+              echo "::error::Missing staging input ${variable}"
+              exit 1
+            fi
+          done
+          if [[ ! "${LIVE_BASELINE_URI}" =~ ^https://.+/sha256:[0-9a-f]{64}$ ]] \
+            || [[ "${LIVE_BASELINE_URI}" == *"@"* ]] \
+            || [[ "${LIVE_BASELINE_URI}" == *"?"* ]] \
+            || [[ "${LIVE_BASELINE_URI}" == *"#"* ]] \
+            || [[ "${LIVE_BASELINE_URI}" =~ [[:space:]] ]]; then
+            echo "::error::LIVE_BASELINE_URI must be credential-free HTTPS ending in /sha256:<64>"
+            exit 1
+          fi
+          if [[ ! "${LIVE_BASELINE_SIGNER_IDENTITY}" =~ ^https://[^[:space:]]+$ ]]; then
+            echo "::error::LIVE_BASELINE_SIGNER_IDENTITY must be a fixed HTTPS OIDC subject"
+            exit 1
+          fi
+          if [[ ! "${LIVE_BASELINE_SIGNER_ISSUER}" =~ ^https://[^[:space:]@?#]+$ ]]; then
+            echo "::error::LIVE_BASELINE_SIGNER_ISSUER must be credential-free HTTPS"
+            exit 1
+          fi
+          public_key_bytes="$(printf '%s' "${AGENT_PLATFORM_EVAL_FAULT_RECEIPT_PUBLIC_KEY_B64}" | base64 --decode | wc -c | tr -d '[:space:]')"
+          if [ "${public_key_bytes}" != "32" ]; then
+            echo "::error::AGENT_PLATFORM_EVAL_FAULT_RECEIPT_PUBLIC_KEY_B64 must decode to 32 raw Ed25519 bytes"
+            exit 1
+          fi
+          if [[ ! "${AGENT_PLATFORM_EVAL_FAULT_RECEIPT_SIGNER_IDENTITY}" =~ ^spiffe://[^[:space:]]+$ ]]; then
+            echo "::error::AGENT_PLATFORM_EVAL_FAULT_RECEIPT_SIGNER_IDENTITY must be a fixed SPIFFE identity"
+            exit 1
+          fi
+          if [[ ! "${EVAL_FAULT_HARNESS_URL}" =~ ^https:// ]] \
+            || [[ "${EVAL_FAULT_HARNESS_URL}" == *"@"* ]] \
+            || [[ "${EVAL_FAULT_HARNESS_URL}" == *"?"* ]] \
+            || [[ "${EVAL_FAULT_HARNESS_URL}" == *"#"* ]] \
+            || [[ "${EVAL_FAULT_HARNESS_URL}" =~ [[:space:]] ]]; then
+            echo "::error::EVAL_FAULT_HARNESS_URL must use credential-free HTTPS"
+            exit 1
+          fi
+          if [[ ! "${EVAL_FAULT_HARNESS_SECRET_NAME}" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]]; then
+            echo "::error::EVAL_FAULT_HARNESS_SECRET_NAME must be a Kubernetes DNS subdomain"
+            exit 1
+          fi
+          if [[ ! "${EVAL_FAULT_HARNESS_TOKEN_KEY}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::EVAL_FAULT_HARNESS_TOKEN_KEY must be a valid Kubernetes Secret key"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "${KUBECONFIG_B64}" | base64 --decode > "${KUBECONFIG}"
+          printf '%s' "${HELM_VALUES_B64}" | base64 --decode > "${RUNNER_TEMP}/staging-values.yaml"
+          mkdir -p .artifacts/staging
+          chmod 600 "${KUBECONFIG}" "${RUNNER_TEMP}/staging-values.yaml"
+
+      - name: Fetch and validate signed live baseline
+        working-directory: apps/agent-platform
+        run: |
+          set -euo pipefail
+          baseline_path="../../.artifacts/staging/live-baseline.json"
+          bundle_path="${baseline_path}.sigstore.json"
+          validation_path="../../.artifacts/staging/live-baseline-validation.json"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --output "${baseline_path}" \
+            "${LIVE_BASELINE_URI}"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --output "${bundle_path}" \
+            "${LIVE_BASELINE_URI}.sigstore.json"
+          expected_digest="${LIVE_BASELINE_URI##*/}"
+          actual_digest="sha256:$(sha256sum "${baseline_path}" | cut -d ' ' -f 1)"
+          if [ "${actual_digest}" != "${expected_digest}" ]; then
+            echo "::error::Live baseline digest mismatch"
+            exit 1
+          fi
+          cosign verify-blob \
+            --bundle "${bundle_path}" \
+            --certificate-identity "${LIVE_BASELINE_SIGNER_IDENTITY}" \
+            --certificate-oidc-issuer "${LIVE_BASELINE_SIGNER_ISSUER}" \
+            "${baseline_path}"
+          uv run --frozen python deploy/ci/validate_live_baseline.py \
+            --evidence "${baseline_path}" \
+            --schema deploy/ci/live-baseline.schema.json \
+            --source-uri "${LIVE_BASELINE_URI}" \
+            --signature-bundle "${bundle_path}" \
+            --expected-environment production \
+            --expected-signer-identity "${LIVE_BASELINE_SIGNER_IDENTITY}" \
+            --expected-signer-issuer "${LIVE_BASELINE_SIGNER_ISSUER}" \
+            --maximum-age-seconds 604800 \
+            --output "${validation_path}"
+          chmod 600 "${baseline_path}" "${bundle_path}" "${validation_path}"
+
+      - name: Deploy exact digest to staging
+        run: |
+          set -euo pipefail
+          namespace="${PLATFORM_NAMESPACE:-agent-platform}"
+          helm upgrade --install agent-platform \
+            "${PLATFORM_ROOT}/deploy/helm/agent-platform" \
+            --namespace "${namespace}" \
+            --create-namespace \
+            --values "${RUNNER_TEMP}/staging-values.yaml" \
+            --set-string global.environment=staging \
+            --set-string global.imageRepository="${IMAGE_REPOSITORY}" \
+            --set-string global.imageDigest="${IMAGE_DIGEST}" \
+            --set-string global.toolCatalogId="${TOOL_CATALOG_ID}" \
+            --set-string global.toolCatalogDigest="${TOOL_CATALOG_DIGEST}" \
+            --set-string global.gitSha="${GITHUB_SHA}" \
+            --set-string config.evalFaultHarnessUrl="${EVAL_FAULT_HARNESS_URL}" \
+            --set-string secrets.evalFaultHarnessSecretName="${EVAL_FAULT_HARNESS_SECRET_NAME}" \
+            --set-string secrets.evalFaultHarnessTokenKey="${EVAL_FAULT_HARNESS_TOKEN_KEY}" \
+            --atomic \
+            --wait \
+            --timeout 20m
+          for deployment in agent-api agent-worker commit-worker outbox-worker; do
+            kubectl --namespace "${namespace}" rollout status \
+              "deployment/${deployment}" --timeout=10m
+          done
+
+      - name: Delete short-lived staging Helm values
+        if: ${{ always() }}
+        run: rm -f -- "${RUNNER_TEMP}/staging-values.yaml"
+
+      - name: Apply and verify staging observability assets
+        env:
+          GRAFANA_API_TOKEN: ${{ secrets.AGENT_PLATFORM_GRAFANA_API_TOKEN }}
+          ALERTMANAGER_API_TOKEN: ${{ secrets.AGENT_PLATFORM_ALERTMANAGER_API_TOKEN }}
+          ALERT_DELIVERY_RECEIPT_TOKEN: ${{ secrets.AGENT_PLATFORM_ALERT_DELIVERY_RECEIPT_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${GRAFANA_API_TOKEN:?GRAFANA_API_TOKEN is required}"
+          : "${ALERTMANAGER_API_TOKEN:?ALERTMANAGER_API_TOKEN is required}"
+          : "${ALERT_DELIVERY_RECEIPT_TOKEN:?ALERT_DELIVERY_RECEIPT_TOKEN is required}"
+          namespace="${PLATFORM_NAMESPACE:-agent-platform}"
+          bash "${PLATFORM_ROOT}/deploy/ci/deploy_observability_assets.sh" \
+            --namespace "${namespace}" \
+            --release-id "${RELEASE_ID}" \
+            --git-sha "${GITHUB_SHA}" \
+            --image-digest "${IMAGE_DIGEST}" \
+            --otel-namespace "${OBSERVABILITY_NAMESPACE:-observability}" \
+            --otel-service "${OTEL_SERVICE:-otel-collector}" \
+            --grafana-namespace "${GRAFANA_NAMESPACE:-observability}" \
+            --grafana-deployment "${GRAFANA_DEPLOYMENT:-grafana}" \
+            --grafana-api-url "${GRAFANA_API_URL}" \
+            --grafana-token-env GRAFANA_API_TOKEN \
+            --alertmanager-api-url "${ALERTMANAGER_API_URL}" \
+            --alertmanager-token-env ALERTMANAGER_API_TOKEN \
+            --alert-receipt-base-url "${ALERT_DELIVERY_RECEIPT_BASE_URL}" \
+            --alert-receipt-token-env ALERT_DELIVERY_RECEIPT_TOKEN \
+            --http-timeout-seconds 10 \
+            --delivery-timeout-seconds 180 \
+            --output .artifacts/staging/staging-observability.json
+          uv run --directory "${PLATFORM_ROOT}" --frozen python \
+            deploy/ci/validate_observability_evidence.py \
+            --evidence ../../.artifacts/staging/staging-observability.json \
+            --schema deploy/ci/observability-evidence.schema.json \
+            --expected-release-id "${RELEASE_ID}" \
+            --expected-git-sha "${GITHUB_SHA}" \
+            --expected-image-digest "${IMAGE_DIGEST}" \
+            --maximum-age-seconds 600 \
+            --output ../../.artifacts/staging/staging-observability-validation.json
+
+      - name: Delete short-lived staging kubeconfig
+        if: ${{ always() }}
+        run: rm -f -- "${KUBECONFIG}"
+
+      - name: Verify staging release identity and read-only smoke
+        working-directory: apps/agent-platform
+        env:
+          AGENT_PLATFORM_RELEASE_TOKEN: ${{ secrets.AGENT_PLATFORM_STAGING_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${AGENT_PLATFORM_RELEASE_TOKEN:?AGENT_PLATFORM_RELEASE_TOKEN is required}"
+          uv run --frozen python scripts/verify_release.py \
+            --base-url "${PLATFORM_BASE_URL}" \
+            --expected-git-sha "${GITHUB_SHA}" \
+            --expected-image-digest "${IMAGE_DIGEST}" \
+            --expected-tool-catalog-id "${TOOL_CATALOG_ID}" \
+            --expected-tool-catalog-digest "${TOOL_CATALOG_DIGEST}" \
+            --output ../../.artifacts/staging/staging-verification.json
+
+      - name: Run credentialed live release evaluations
+        working-directory: apps/agent-platform
+        env:
+          AGENT_PLATFORM_RELEASE_TOKEN: ${{ secrets.AGENT_PLATFORM_STAGING_RELEASE_TOKEN }}
+          AGENT_PLATFORM_HUMAN_REVIEW_TOKEN: ${{ secrets.AGENT_PLATFORM_STAGING_HUMAN_REVIEW_SERVICE_TOKEN }}
+          AGENT_PLATFORM_EVAL_FAULT_TOKEN: ${{ secrets.AGENT_PLATFORM_EVAL_FAULT_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${AGENT_PLATFORM_RELEASE_TOKEN:?AGENT_PLATFORM_RELEASE_TOKEN is required}"
+          : "${AGENT_PLATFORM_HUMAN_REVIEW_TOKEN:?AGENT_PLATFORM_HUMAN_REVIEW_TOKEN is required}"
+          : "${AGENT_PLATFORM_EVAL_FAULT_TOKEN:?AGENT_PLATFORM_EVAL_FAULT_TOKEN is required}"
+          uv run --frozen python evals/run_live_release_evals.py \
+            --base-url "${PLATFORM_BASE_URL}" \
+            --release-id "${RELEASE_ID}" \
+            --git-sha "${GITHUB_SHA}" \
+            --image-digest "${IMAGE_DIGEST}" \
+            --offline-results ../../.artifacts/quality/offline-release-evals.json \
+            --baseline ../../.artifacts/staging/live-baseline.json \
+            --baseline-validation ../../.artifacts/staging/live-baseline-validation.json \
+            --review-service-url "${HUMAN_REVIEW_SERVICE_URL}" \
+            --review-schema deploy/ci/human-review-evidence.schema.json \
+            --candidate-manifest-output ../../.artifacts/staging/live-candidate-manifest.json \
+            --candidate-results-output ../../.artifacts/staging/live-candidate-results.json \
+            --human-review-output ../../.artifacts/staging/human-review-evidence.json \
+            --review-timeout-seconds 18000 \
+            --review-poll-seconds 30 \
+            --review-maximum-age-seconds 86400 \
+            --output ../../.artifacts/staging/live-release-evals.json
+          uv run --frozen python evals/graders/release_gate.py \
+            --policy evals/release-policy.json \
+            --results ../../.artifacts/staging/live-release-evals.json \
+            > ../../.artifacts/staging/live-release-gate.json
+
+      - name: Upload staging evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: agent-platform-staging-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/staging
+          if-no-files-found: error
+          retention-days: 365
+
+  production_canary:
+    name: Verify external production canary evidence
+    needs: [build_image, staging]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: agent-platform-production-canary
+    env:
+      CANARY_EVIDENCE_URI: ${{ vars.AGENT_PLATFORM_CANARY_EVIDENCE_URI }}
+      CANARY_EVIDENCE_SIGNER_IDENTITY: ${{ vars.AGENT_PLATFORM_CANARY_EVIDENCE_SIGNER_IDENTITY }}
+      CANARY_EVIDENCE_SIGNER_ISSUER: ${{ vars.AGENT_PLATFORM_CANARY_EVIDENCE_SIGNER_ISSUER }}
+      IMAGE_DIGEST: ${{ needs.build_image.outputs.image_digest }}
+      TOOL_CATALOG_ID: ${{ needs.build_image.outputs.tool_catalog_id }}
+      TOOL_CATALOG_DIGEST: ${{ needs.build_image.outputs.tool_catalog_digest }}
+      MINIMUM_OBSERVATION_SECONDS: ${{ inputs.canary_minimum_observation_seconds || '60300' }}
+      PLATFORM_BASE_URL: ${{ vars.AGENT_PLATFORM_CANARY_URL }}
+    steps:
+      - name: Check out immutable release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install cosign for external evidence verification
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Install locked canary verifier
+        run: uv sync --directory "${PLATFORM_ROOT}" --frozen --extra dev
+
+      - name: Verify the controller-deployed canary is the exact release
+        working-directory: apps/agent-platform
+        env:
+          AGENT_PLATFORM_RELEASE_TOKEN: ${{ secrets.AGENT_PLATFORM_CANARY_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${AGENT_PLATFORM_RELEASE_TOKEN:?AGENT_PLATFORM_RELEASE_TOKEN is required}"
+          uv run --frozen python scripts/verify_release.py \
+            --base-url "${PLATFORM_BASE_URL}" \
+            --expected-git-sha "${GITHUB_SHA}" \
+            --expected-image-digest "${IMAGE_DIGEST}" \
+            --expected-tool-catalog-id "${TOOL_CATALOG_ID}" \
+            --expected-tool-catalog-digest "${TOOL_CATALOG_DIGEST}" \
+            --output ../../.artifacts/canary/canary-release-verification.json
+
+      - name: Fetch and verify signed external provider canary evidence
+        env:
+          CANARY_EVIDENCE_BEARER_TOKEN: ${{ secrets.AGENT_PLATFORM_CANARY_EVIDENCE_BEARER_TOKEN }}
+        run: |
+          set -euo pipefail
+          for variable in \
+            CANARY_EVIDENCE_URI \
+            CANARY_EVIDENCE_SIGNER_IDENTITY \
+            CANARY_EVIDENCE_SIGNER_ISSUER; do
+            if [ -z "${!variable:-}" ]; then
+              echo "::error::Missing required canary evidence input: ${variable}"
+              exit 1
+            fi
+          done
+          : "${CANARY_EVIDENCE_BEARER_TOKEN:?CANARY_EVIDENCE_BEARER_TOKEN is required}"
+          if [[ ! "${CANARY_EVIDENCE_URI}" =~ ^https://.+/sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::AGENT_PLATFORM_CANARY_EVIDENCE_URI must be an HTTPS content-addressed URI"
+            exit 1
+          fi
+          mkdir -p .artifacts/canary
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --header "Authorization: Bearer ${CANARY_EVIDENCE_BEARER_TOKEN}" \
+            --output .artifacts/canary/external-canary-evidence.json \
+            "${CANARY_EVIDENCE_URI}"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --header "Authorization: Bearer ${CANARY_EVIDENCE_BEARER_TOKEN}" \
+            --output .artifacts/canary/external-canary-evidence.json.sigstore.json \
+            "${CANARY_EVIDENCE_URI}.sigstore.json"
+          claimed_digest="${CANARY_EVIDENCE_URI##*/}"
+          actual_digest="sha256:$(sha256sum .artifacts/canary/external-canary-evidence.json | cut -d ' ' -f 1)"
+          if [ "${claimed_digest}" != "${actual_digest}" ]; then
+            echo "::error::Canary evidence content-addressed URI digest mismatch"
+            exit 1
+          fi
+          cosign verify-blob \
+            --bundle .artifacts/canary/external-canary-evidence.json.sigstore.json \
+            --certificate-identity "${CANARY_EVIDENCE_SIGNER_IDENTITY}" \
+            --certificate-oidc-issuer "${CANARY_EVIDENCE_SIGNER_ISSUER}" \
+            .artifacts/canary/external-canary-evidence.json
+
+      - name: Validate complete phases, observation windows, and stop conditions
+        working-directory: apps/agent-platform
+        run: |
+          set -euo pipefail
+          uv run --frozen python deploy/ci/validate_canary_evidence.py \
+            --evidence ../../.artifacts/canary/external-canary-evidence.json \
+            --signature-bundle ../../.artifacts/canary/external-canary-evidence.json.sigstore.json \
+            --schema deploy/ci/canary-evidence.schema.json \
+            --policy deploy/ci/canary-policy.yaml \
+            --source-uri "${CANARY_EVIDENCE_URI}" \
+            --expected-release-id "${RELEASE_ID}" \
+            --expected-git-sha "${GITHUB_SHA}" \
+            --expected-image-digest "${IMAGE_DIGEST}" \
+            --expected-signer-identity "${CANARY_EVIDENCE_SIGNER_IDENTITY}" \
+            --expected-signer-issuer "${CANARY_EVIDENCE_SIGNER_ISSUER}" \
+            --maximum-age-seconds 86400 \
+            --minimum-observation-seconds "${MINIMUM_OBSERVATION_SECONDS}" \
+            --output ../../.artifacts/canary/canary-validation.json
+
+      - name: Upload external canary evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: agent-platform-canary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/canary
+          if-no-files-found: error
+          retention-days: 365
+
+  production:
+    name: Approve, deploy same digest, and verify production
+    needs: [build_image, production_canary]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: agent-platform-production
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    env:
+      APPROVALS_URI: ${{ vars.AGENT_PLATFORM_RELEASE_APPROVALS_URI }}
+      APPROVALS_SIGNER_IDENTITY: ${{ vars.AGENT_PLATFORM_RELEASE_APPROVALS_SIGNER_IDENTITY }}
+      APPROVALS_SIGNER_ISSUER: ${{ vars.AGENT_PLATFORM_RELEASE_APPROVALS_SIGNER_ISSUER }}
+      OPERATIONAL_READINESS_BASE_URL: ${{ vars.AGENT_PLATFORM_OPERATIONAL_READINESS_BASE_URL }}
+      OPERATIONAL_READINESS_SIGNER_IDENTITY: ${{ vars.AGENT_PLATFORM_OPERATIONAL_READINESS_SIGNER_IDENTITY }}
+      OPERATIONAL_READINESS_SIGNER_ISSUER: ${{ vars.AGENT_PLATFORM_OPERATIONAL_READINESS_SIGNER_ISSUER }}
+      FOUNDATION_ATTESTATION_URI: ${{ vars.AGENT_PLATFORM_FOUNDATION_ATTESTATION_URI }}
+      FOUNDATION_ATTESTATION_SIGNER_IDENTITY: ${{ vars.AGENT_PLATFORM_FOUNDATION_ATTESTATION_SIGNER_IDENTITY }}
+      FOUNDATION_ATTESTATION_SIGNER_ISSUER: ${{ vars.AGENT_PLATFORM_FOUNDATION_ATTESTATION_SIGNER_ISSUER }}
+      CANARY_EVIDENCE_SIGNER_IDENTITY: ${{ vars.AGENT_PLATFORM_CANARY_EVIDENCE_SIGNER_IDENTITY }}
+      CANARY_EVIDENCE_SIGNER_ISSUER: ${{ vars.AGENT_PLATFORM_CANARY_EVIDENCE_SIGNER_ISSUER }}
+      IMAGE_DIGEST: ${{ needs.build_image.outputs.image_digest }}
+      IMAGE_REPOSITORY: ${{ needs.build_image.outputs.image_repository }}
+      TOOL_CATALOG_ID: ${{ needs.build_image.outputs.tool_catalog_id }}
+      TOOL_CATALOG_DIGEST: ${{ needs.build_image.outputs.tool_catalog_digest }}
+      KUBECONFIG: ${{ runner.temp }}/agent-platform-production-kubeconfig
+      PLATFORM_BASE_URL: ${{ vars.AGENT_PLATFORM_PRODUCTION_URL }}
+      PLATFORM_NAMESPACE: ${{ vars.AGENT_PLATFORM_NAMESPACE }}
+      OBSERVABILITY_NAMESPACE: ${{ vars.AGENT_PLATFORM_OBSERVABILITY_NAMESPACE }}
+      OTEL_SERVICE: ${{ vars.AGENT_PLATFORM_OTEL_SERVICE }}
+      GRAFANA_NAMESPACE: ${{ vars.AGENT_PLATFORM_GRAFANA_NAMESPACE }}
+      GRAFANA_DEPLOYMENT: ${{ vars.AGENT_PLATFORM_GRAFANA_DEPLOYMENT }}
+      GRAFANA_API_URL: ${{ vars.AGENT_PLATFORM_GRAFANA_API_URL }}
+      ALERTMANAGER_API_URL: ${{ vars.AGENT_PLATFORM_ALERTMANAGER_API_URL }}
+      ALERT_DELIVERY_RECEIPT_BASE_URL: ${{ vars.AGENT_PLATFORM_ALERT_DELIVERY_RECEIPT_BASE_URL }}
+    steps:
+      - name: Check out immutable release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Download supply-chain evidence
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: agent-platform-supply-chain-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/supply-chain
+
+      - name: Download staging evidence
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: agent-platform-staging-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/staging
+
+      - name: Download canary evidence
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: agent-platform-canary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/canary
+
+      - name: Download external release preflight report
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: external-release-preflight-${{ env.RELEASE_ID }}
+          path: .artifacts/external-release-preflight
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Verify downloaded external release preflight report
+        run: |
+          set -euo pipefail
+          mkdir -p .artifacts/production
+          python "${PLATFORM_ROOT}/deploy/ci/validate_external_release_preflight.py" \
+            --requirements "${PLATFORM_ROOT}/deploy/ci/external-release-preflight.json" \
+            --verify-report ".artifacts/external-release-preflight/external-release-preflight.json" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --release-tag "${GITHUB_REF_NAME}" \
+            --git-sha "${GITHUB_SHA}" \
+            --release-id "${RELEASE_ID}" \
+            --output ".artifacts/production/external-release-preflight-validation.json"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Set up Helm
+        uses: Azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Set up kubectl
+        uses: Azure/setup-kubectl@829323503d1be3d00ca8346e5391ca0b07a9ab0d # v5
+        with:
+          version: ${{ env.KUBECTL_VERSION }}
+
+      - name: Install cosign for external evidence verification
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Install locked production verifier
+        run: uv sync --directory "${PLATFORM_ROOT}" --frozen --extra dev
+
+      - name: Materialize short-lived production inputs
+        env:
+          HELM_VALUES_B64: ${{ secrets.AGENT_PLATFORM_PRODUCTION_HELM_VALUES_B64 }}
+          KUBECONFIG_B64: ${{ secrets.AGENT_PLATFORM_PRODUCTION_KUBECONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          for variable in \
+            APPROVALS_URI \
+            APPROVALS_SIGNER_IDENTITY \
+            APPROVALS_SIGNER_ISSUER \
+            OPERATIONAL_READINESS_BASE_URL \
+            OPERATIONAL_READINESS_SIGNER_IDENTITY \
+            OPERATIONAL_READINESS_SIGNER_ISSUER \
+            FOUNDATION_ATTESTATION_URI \
+            FOUNDATION_ATTESTATION_SIGNER_IDENTITY \
+            FOUNDATION_ATTESTATION_SIGNER_ISSUER \
+            CANARY_EVIDENCE_SIGNER_IDENTITY \
+            CANARY_EVIDENCE_SIGNER_ISSUER \
+            HELM_VALUES_B64 \
+            KUBECONFIG_B64 \
+            PLATFORM_BASE_URL \
+            GRAFANA_API_URL \
+            ALERTMANAGER_API_URL \
+            ALERT_DELIVERY_RECEIPT_BASE_URL
+          do
+            if [ -z "${!variable:-}" ]; then
+              echo "::error::Missing production input ${variable}"
+              exit 1
+            fi
+          done
+          if [[ ! "${APPROVALS_URI}" =~ ^https://.+/sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::AGENT_PLATFORM_RELEASE_APPROVALS_URI must be an HTTPS content-addressed URI"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "${KUBECONFIG_B64}" | base64 --decode > "${KUBECONFIG}"
+          printf '%s' "${HELM_VALUES_B64}" | base64 --decode > "${RUNNER_TEMP}/production-values.yaml"
+          chmod 600 "${KUBECONFIG}" "${RUNNER_TEMP}/production-values.yaml"
+          mkdir -p .artifacts/production
+
+      - name: Fetch and validate independent control approvals
+        working-directory: apps/agent-platform
+        env:
+          APPROVALS_BEARER_TOKEN: ${{ secrets.AGENT_PLATFORM_RELEASE_APPROVALS_BEARER_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${APPROVALS_BEARER_TOKEN:?APPROVALS_BEARER_TOKEN is required}"
+          approvals=../../.artifacts/production/release-approvals.json
+          signature_bundle="${approvals}.sigstore.json"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --header "Authorization: Bearer ${APPROVALS_BEARER_TOKEN}" \
+            --output "${approvals}" \
+            "${APPROVALS_URI}"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --header "Authorization: Bearer ${APPROVALS_BEARER_TOKEN}" \
+            --output "${signature_bundle}" \
+            "${APPROVALS_URI}.sigstore.json"
+          claimed_digest="${APPROVALS_URI##*/}"
+          actual_digest="sha256:$(sha256sum "${approvals}" | cut -d ' ' -f 1)"
+          if [ "${claimed_digest}" != "${actual_digest}" ]; then
+            echo "::error::Release approvals content-addressed URI digest mismatch"
+            exit 1
+          fi
+          cosign verify-blob \
+            --bundle "${signature_bundle}" \
+            --certificate-identity "${APPROVALS_SIGNER_IDENTITY}" \
+            --certificate-oidc-issuer "${APPROVALS_SIGNER_ISSUER}" \
+            "${approvals}"
+          uv run --frozen python deploy/ci/validate_release_approvals.py \
+            --approvals "${approvals}" \
+            --signature-bundle "${signature_bundle}" \
+            --schema deploy/ci/release-approvals.schema.json \
+            --source-uri "${APPROVALS_URI}" \
+            --expected-release-id "${RELEASE_ID}" \
+            --expected-git-sha "${GITHUB_SHA}" \
+            --expected-image-digest "${IMAGE_DIGEST}" \
+            --expected-signer-identity "${APPROVALS_SIGNER_IDENTITY}" \
+            --expected-signer-issuer "${APPROVALS_SIGNER_ISSUER}" \
+            --maximum-age-seconds 604800 \
+            --output ../../.artifacts/production/release-approvals-validation.json
+
+      - name: Fetch and validate operational release readiness
+        working-directory: apps/agent-platform
+        env:
+          OPERATIONAL_READINESS_BEARER_TOKEN: ${{ secrets.AGENT_PLATFORM_OPERATIONAL_READINESS_BEARER_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${OPERATIONAL_READINESS_BEARER_TOKEN:?OPERATIONAL_READINESS_BEARER_TOKEN is required}"
+          if [[ ! "${OPERATIONAL_READINESS_BASE_URL}" =~ ^https:// ]]; then
+            echo "::error::AGENT_PLATFORM_OPERATIONAL_READINESS_BASE_URL must use HTTPS"
+            exit 1
+          fi
+          readiness_url="${OPERATIONAL_READINESS_BASE_URL%/}/${RELEASE_ID}.json"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --header "Authorization: Bearer ${OPERATIONAL_READINESS_BEARER_TOKEN}" \
+            --output ../../.artifacts/production/operational-readiness.json \
+            "${readiness_url}"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --header "Authorization: Bearer ${OPERATIONAL_READINESS_BEARER_TOKEN}" \
+            --output ../../.artifacts/production/operational-readiness.json.sha256 \
+            "${readiness_url}.sha256"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --header "Authorization: Bearer ${OPERATIONAL_READINESS_BEARER_TOKEN}" \
+            --output ../../.artifacts/production/operational-readiness.json.sigstore.json \
+            "${readiness_url}.sigstore.json"
+          claimed_digest="$(tr -d '[:space:]' < ../../.artifacts/production/operational-readiness.json.sha256)"
+          actual_digest="sha256:$(sha256sum ../../.artifacts/production/operational-readiness.json | cut -d ' ' -f 1)"
+          if [[ ! "${claimed_digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+             [ "${claimed_digest}" != "${actual_digest}" ]; then
+            echo "::error::Operational readiness detached digest mismatch"
+            exit 1
+          fi
+          cosign verify-blob \
+            --bundle ../../.artifacts/production/operational-readiness.json.sigstore.json \
+            --certificate-identity "${OPERATIONAL_READINESS_SIGNER_IDENTITY}" \
+            --certificate-oidc-issuer "${OPERATIONAL_READINESS_SIGNER_ISSUER}" \
+            ../../.artifacts/production/operational-readiness.json
+          uv run --frozen python deploy/ci/validate_operational_readiness.py \
+            --evidence ../../.artifacts/production/operational-readiness.json \
+            --schema deploy/ci/operational-readiness.schema.json \
+            --gate-report-schema deploy/ci/operational-gate-report.schema.json \
+            --fetch-gate-reports \
+            --report-bearer-token-env OPERATIONAL_READINESS_BEARER_TOKEN \
+            --expected-release-id "${RELEASE_ID}" \
+            --expected-git-sha "${GITHUB_SHA}" \
+            --expected-image-digest "${IMAGE_DIGEST}" \
+            --expected-signer-identity "${OPERATIONAL_READINESS_SIGNER_IDENTITY}" \
+            --expected-signer-issuer "${OPERATIONAL_READINESS_SIGNER_ISSUER}" \
+            --maximum-age-seconds 86400 \
+            --minimum-retention-days 365 \
+            --output ../../.artifacts/production/operational-readiness-validation.json
+
+      - name: Fetch, verify, and validate production foundation
+        working-directory: apps/agent-platform
+        env:
+          FOUNDATION_ATTESTATION_BEARER_TOKEN: ${{ secrets.AGENT_PLATFORM_FOUNDATION_ATTESTATION_BEARER_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${FOUNDATION_ATTESTATION_BEARER_TOKEN:?FOUNDATION_ATTESTATION_BEARER_TOKEN is required}"
+          if [[ ! "${FOUNDATION_ATTESTATION_URI}" =~ ^https://.+/sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::AGENT_PLATFORM_FOUNDATION_ATTESTATION_URI must be an immutable HTTPS digest URI"
+            exit 1
+          fi
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --header "Authorization: Bearer ${FOUNDATION_ATTESTATION_BEARER_TOKEN}" \
+            --output ../../.artifacts/production/foundation-attestation.json \
+            "${FOUNDATION_ATTESTATION_URI}"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --header "Authorization: Bearer ${FOUNDATION_ATTESTATION_BEARER_TOKEN}" \
+            --output ../../.artifacts/production/foundation-attestation.json.sigstore.json \
+            "${FOUNDATION_ATTESTATION_URI}.sigstore.json"
+          uv run --frozen python deploy/ci/validate_foundation_attestation.py \
+            --evidence ../../.artifacts/production/foundation-attestation.json \
+            --schema deploy/ci/foundation-attestation.schema.json \
+            --source-uri "${FOUNDATION_ATTESTATION_URI}" \
+            --signature-bundle ../../.artifacts/production/foundation-attestation.json.sigstore.json \
+            --expected-release-id "${RELEASE_ID}" \
+            --expected-git-sha "${GITHUB_SHA}" \
+            --expected-image-digest "${IMAGE_DIGEST}" \
+            --expected-terraform-version "${TERRAFORM_VERSION}" \
+            --expected-signer-identity "${FOUNDATION_ATTESTATION_SIGNER_IDENTITY}" \
+            --expected-signer-issuer "${FOUNDATION_ATTESTATION_SIGNER_ISSUER}" \
+            --maximum-age-seconds 86400 \
+            --output ../../.artifacts/production/foundation-attestation-validation.json
+
+      - name: Read back the real GitHub production environment approval
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          : "${GITHUB_TOKEN:?GITHUB_TOKEN is required}"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2026-03-10" \
+            --output .artifacts/production/github-environment-reviews.json \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/approvals"
+          uv run --directory "${PLATFORM_ROOT}" --frozen python \
+            deploy/ci/validate_environment_approval.py \
+            --reviews ../../.artifacts/production/github-environment-reviews.json \
+            --expected-environment agent-platform-production \
+            --repository "${GITHUB_REPOSITORY}" \
+            --workflow-run-id "${GITHUB_RUN_ID}" \
+            --output ../../.artifacts/production/deployment-approval.json
+
+      - name: Verify signed rollback target before deployment
+        run: |
+          set -euo pipefail
+          namespace="${PLATFORM_NAMESPACE:-agent-platform}"
+          readiness=".artifacts/production/operational-readiness.json"
+          rollback_dir=".artifacts/production/rollback"
+          mkdir -p "${rollback_dir}"
+
+          rollback_revision="$(jq -er '.rollback.previous_helm_revision' "${readiness}")"
+          rollback_git_sha="$(jq -er '.rollback.previous_git_sha' "${readiness}")"
+          rollback_image_digest="$(jq -er '.rollback.previous_image_digest' "${readiness}")"
+          rollback_tool_catalog_id="$(jq -er '.rollback.previous_tool_catalog_id' "${readiness}")"
+          rollback_tool_catalog_digest="$(jq -er '.rollback.previous_tool_catalog_digest' "${readiness}")"
+          jq -e '.rollback.database_compatibility_approved == true' "${readiness}" >/dev/null
+
+          helm history agent-platform --namespace "${namespace}" --max 30 --output json \
+            > "${rollback_dir}/helm-history-before.json"
+          helm status agent-platform --namespace "${namespace}" --output json \
+            > "${rollback_dir}/helm-status-before.json"
+          current_revision="$(jq -er '.version' "${rollback_dir}/helm-status-before.json")"
+          if [ "${current_revision}" != "${rollback_revision}" ]; then
+            echo "::error::Signed rollback revision is not the current predeployment revision"
+            exit 1
+          fi
+          if [ "${rollback_image_digest}" = "${IMAGE_DIGEST}" ]; then
+            echo "::error::Rollback target must differ from the candidate image"
+            exit 1
+          fi
+
+          helm get manifest agent-platform --namespace "${namespace}" \
+            --revision "${rollback_revision}" \
+            > "${rollback_dir}/target-manifest.yaml"
+          grep -F -- "@${rollback_image_digest}" "${rollback_dir}/target-manifest.yaml" >/dev/null
+          grep -F -- "${rollback_git_sha}" "${rollback_dir}/target-manifest.yaml" >/dev/null
+          grep -F -- "${rollback_tool_catalog_id}" "${rollback_dir}/target-manifest.yaml" >/dev/null
+          grep -F -- "${rollback_tool_catalog_digest}" \
+            "${rollback_dir}/target-manifest.yaml" >/dev/null
+          kubectl --namespace "${namespace}" get deployment \
+            agent-api agent-worker commit-worker outbox-worker \
+            --output json > "${rollback_dir}/deployments-before.json"
+          jq -e --arg digest "${rollback_image_digest}" \
+            '(.items | length) == 4 and
+             all(.items[].spec.template.spec.containers[]; .image | endswith("@" + $digest))' \
+            "${rollback_dir}/deployments-before.json" >/dev/null
+
+          {
+            echo "ROLLBACK_REVISION=${rollback_revision}"
+            echo "ROLLBACK_GIT_SHA=${rollback_git_sha}"
+            echo "ROLLBACK_IMAGE_DIGEST=${rollback_image_digest}"
+            echo "ROLLBACK_TOOL_CATALOG_ID=${rollback_tool_catalog_id}"
+            echo "ROLLBACK_TOOL_CATALOG_DIGEST=${rollback_tool_catalog_digest}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Deploy the same immutable digest to production
+        id: deploy_production
+        run: |
+          set -euo pipefail
+          namespace="${PLATFORM_NAMESPACE:-agent-platform}"
+          helm upgrade --install agent-platform \
+            "${PLATFORM_ROOT}/deploy/helm/agent-platform" \
+            --namespace "${namespace}" \
+            --create-namespace \
+            --values "${RUNNER_TEMP}/production-values.yaml" \
+            --set-string global.environment=prod \
+            --set-string global.imageRepository="${IMAGE_REPOSITORY}" \
+            --set-string global.imageDigest="${IMAGE_DIGEST}" \
+            --set-string global.toolCatalogId="${TOOL_CATALOG_ID}" \
+            --set-string global.toolCatalogDigest="${TOOL_CATALOG_DIGEST}" \
+            --set-string global.gitSha="${GITHUB_SHA}" \
+            --atomic \
+            --wait \
+            --timeout 20m
+
+      - name: Delete short-lived production Helm values
+        if: ${{ always() }}
+        run: rm -f -- "${RUNNER_TEMP}/production-values.yaml"
+
+      - name: Verify production workload rollouts
+        run: |
+          set -euo pipefail
+          namespace="${PLATFORM_NAMESPACE:-agent-platform}"
+          for deployment in agent-api agent-worker commit-worker outbox-worker; do
+            kubectl --namespace "${namespace}" rollout status \
+              "deployment/${deployment}" --timeout=10m
+          done
+
+      - name: Apply and verify production observability assets
+        env:
+          GRAFANA_API_TOKEN: ${{ secrets.AGENT_PLATFORM_GRAFANA_API_TOKEN }}
+          ALERTMANAGER_API_TOKEN: ${{ secrets.AGENT_PLATFORM_ALERTMANAGER_API_TOKEN }}
+          ALERT_DELIVERY_RECEIPT_TOKEN: ${{ secrets.AGENT_PLATFORM_ALERT_DELIVERY_RECEIPT_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${GRAFANA_API_TOKEN:?GRAFANA_API_TOKEN is required}"
+          : "${ALERTMANAGER_API_TOKEN:?ALERTMANAGER_API_TOKEN is required}"
+          : "${ALERT_DELIVERY_RECEIPT_TOKEN:?ALERT_DELIVERY_RECEIPT_TOKEN is required}"
+          namespace="${PLATFORM_NAMESPACE:-agent-platform}"
+          bash "${PLATFORM_ROOT}/deploy/ci/deploy_observability_assets.sh" \
+            --namespace "${namespace}" \
+            --release-id "${RELEASE_ID}" \
+            --git-sha "${GITHUB_SHA}" \
+            --image-digest "${IMAGE_DIGEST}" \
+            --otel-namespace "${OBSERVABILITY_NAMESPACE:-observability}" \
+            --otel-service "${OTEL_SERVICE:-otel-collector}" \
+            --grafana-namespace "${GRAFANA_NAMESPACE:-observability}" \
+            --grafana-deployment "${GRAFANA_DEPLOYMENT:-grafana}" \
+            --grafana-api-url "${GRAFANA_API_URL}" \
+            --grafana-token-env GRAFANA_API_TOKEN \
+            --alertmanager-api-url "${ALERTMANAGER_API_URL}" \
+            --alertmanager-token-env ALERTMANAGER_API_TOKEN \
+            --alert-receipt-base-url "${ALERT_DELIVERY_RECEIPT_BASE_URL}" \
+            --alert-receipt-token-env ALERT_DELIVERY_RECEIPT_TOKEN \
+            --http-timeout-seconds 10 \
+            --delivery-timeout-seconds 180 \
+            --output .artifacts/production/production-observability.json
+          uv run --directory "${PLATFORM_ROOT}" --frozen python \
+            deploy/ci/validate_observability_evidence.py \
+            --evidence ../../.artifacts/production/production-observability.json \
+            --schema deploy/ci/observability-evidence.schema.json \
+            --expected-release-id "${RELEASE_ID}" \
+            --expected-git-sha "${GITHUB_SHA}" \
+            --expected-image-digest "${IMAGE_DIGEST}" \
+            --maximum-age-seconds 600 \
+            --output ../../.artifacts/production/production-observability-validation.json
+
+      - name: Verify exact production identity, dependencies, and smoke run
+        working-directory: apps/agent-platform
+        env:
+          AGENT_PLATFORM_RELEASE_TOKEN: ${{ secrets.AGENT_PLATFORM_PRODUCTION_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${AGENT_PLATFORM_RELEASE_TOKEN:?AGENT_PLATFORM_RELEASE_TOKEN is required}"
+          uv run --frozen python scripts/verify_release.py \
+            --base-url "${PLATFORM_BASE_URL}" \
+            --expected-git-sha "${GITHUB_SHA}" \
+            --expected-image-digest "${IMAGE_DIGEST}" \
+            --expected-tool-catalog-id "${TOOL_CATALOG_ID}" \
+            --expected-tool-catalog-digest "${TOOL_CATALOG_DIGEST}" \
+            --output ../../.artifacts/production/production-verification.json
+
+      - name: Publish and read back governed component evidence
+        working-directory: apps/agent-platform
+        env:
+          AGENT_PLATFORM_EVIDENCE_PUBLISH_TOKEN: ${{ secrets.AGENT_PLATFORM_EVIDENCE_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${AGENT_PLATFORM_EVIDENCE_PUBLISH_TOKEN:?AGENT_PLATFORM_EVIDENCE_PUBLISH_TOKEN is required}"
+          uv run --frozen python scripts/publish_evidence_assets.py \
+            --base-url "${PLATFORM_BASE_URL}" \
+            --token-env AGENT_PLATFORM_EVIDENCE_PUBLISH_TOKEN \
+            --release-id "${RELEASE_ID}" \
+            --git-sha "${GITHUB_SHA}" \
+            --image-digest "${IMAGE_DIGEST}" \
+            --kind release-evidence-component \
+            --minimum-retention-days 365 \
+            --asset sbom=../../.artifacts/supply-chain/sbom.spdx.json \
+            --asset provenance=../../.artifacts/supply-chain/provenance.attestation.json \
+            --asset eval_results=../../.artifacts/staging/live-release-evals.json \
+            --asset candidate_manifest=../../.artifacts/staging/live-candidate-manifest.json \
+            --asset candidate_results=../../.artifacts/staging/live-candidate-results.json \
+            --asset human_review=../../.artifacts/staging/human-review-evidence.json \
+            --asset canary=../../.artifacts/canary/external-canary-evidence.json \
+            --asset canary_signature_bundle=../../.artifacts/canary/external-canary-evidence.json.sigstore.json \
+            --asset canary_validation=../../.artifacts/canary/canary-validation.json \
+            --asset staging_verification=../../.artifacts/staging/staging-verification.json \
+            --asset production_verification=../../.artifacts/production/production-verification.json \
+            --asset foundation_attestation=../../.artifacts/production/foundation-attestation.json \
+            --asset foundation_attestation_signature_bundle=../../.artifacts/production/foundation-attestation.json.sigstore.json \
+            --asset foundation_attestation_validation=../../.artifacts/production/foundation-attestation-validation.json \
+            --asset operational_readiness=../../.artifacts/production/operational-readiness.json \
+            --asset operational_readiness_validation=../../.artifacts/production/operational-readiness-validation.json \
+            --asset release_approvals=../../.artifacts/production/release-approvals.json \
+            --asset release_approvals_signature_bundle=../../.artifacts/production/release-approvals.json.sigstore.json \
+            --asset release_approvals_validation=../../.artifacts/production/release-approvals-validation.json \
+            --asset deployment_approval=../../.artifacts/production/deployment-approval.json \
+            --asset production_observability=../../.artifacts/production/production-observability.json \
+            --asset external_release_preflight=../../.artifacts/production/external-release-preflight-validation.json \
+            --readback-dir ../../.artifacts/production/component-evidence-readback \
+            --output ../../.artifacts/production/component-evidence-publication.json
+          component_readback=../../.artifacts/production/component-evidence-readback
+          cosign verify-blob \
+            --bundle "${component_readback}/foundation_attestation_signature_bundle" \
+            --certificate-identity "${FOUNDATION_ATTESTATION_SIGNER_IDENTITY}" \
+            --certificate-oidc-issuer "${FOUNDATION_ATTESTATION_SIGNER_ISSUER}" \
+            "${component_readback}/foundation_attestation"
+          cosign verify-blob \
+            --bundle "${component_readback}/canary_signature_bundle" \
+            --certificate-identity "${CANARY_EVIDENCE_SIGNER_IDENTITY}" \
+            --certificate-oidc-issuer "${CANARY_EVIDENCE_SIGNER_ISSUER}" \
+            "${component_readback}/canary"
+          cosign verify-blob \
+            --bundle "${component_readback}/release_approvals_signature_bundle" \
+            --certificate-identity "${APPROVALS_SIGNER_IDENTITY}" \
+            --certificate-oidc-issuer "${APPROVALS_SIGNER_ISSUER}" \
+            "${component_readback}/release_approvals"
+
+      - name: Build complete release evidence
+        working-directory: apps/agent-platform
+        run: |
+          set -euo pipefail
+
+          tool_catalog_sha256="sha256:$(sha256sum deploy/catalogs/tool-catalog.v1.json | cut -d ' ' -f 1)"
+          uv run --frozen python scripts/build_release_evidence.py \
+            --release-id "${RELEASE_ID}" \
+            --git-sha "${GITHUB_SHA}" \
+            --image-digest "${IMAGE_DIGEST}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --release-tag "${GITHUB_REF_NAME}" \
+            --published-assets ../../.artifacts/production/component-evidence-publication.json \
+            --external-release-preflight ../../.artifacts/production/component-evidence-readback/external_release_preflight \
+            --foundation-attestation-validation ../../.artifacts/production/foundation-attestation-validation.json \
+            --canary-validation ../../.artifacts/production/component-evidence-readback/canary_validation \
+            --operational-readiness ../../.artifacts/production/operational-readiness.json \
+            --operational-readiness-validation ../../.artifacts/production/operational-readiness-validation.json \
+            --operational-readiness-uri "${OPERATIONAL_READINESS_BASE_URL%/}/${RELEASE_ID}.json" \
+            --operational-readiness-signer-identity "${OPERATIONAL_READINESS_SIGNER_IDENTITY}" \
+            --operational-readiness-signer-issuer "${OPERATIONAL_READINESS_SIGNER_ISSUER}" \
+            --maximum-readiness-age-seconds 86400 \
+            --minimum-evidence-retention-days 365 \
+            --maximum-publication-age-seconds 3600 \
+            --tool-catalog deploy/catalogs/tool-catalog.v1.json \
+            --tool-catalog-sha256 "${tool_catalog_sha256}" \
+            --approvals-bundle ../../.artifacts/production/component-evidence-readback/release_approvals \
+            --approvals-signature-bundle ../../.artifacts/production/component-evidence-readback/release_approvals_signature_bundle \
+            --approvals-validation ../../.artifacts/production/component-evidence-readback/release_approvals_validation \
+            --approvals-signer-identity "${APPROVALS_SIGNER_IDENTITY}" \
+            --approvals-signer-issuer "${APPROVALS_SIGNER_ISSUER}" \
+            --deployment-approval ../../.artifacts/production/deployment-approval.json \
+            --maximum-approval-age-seconds 604800 \
+            --output ../../.artifacts/production/release-evidence.json
+
+      - name: Sign, publish, and read back final release evidence
+        id: publish_final_evidence
+        working-directory: apps/agent-platform
+        env:
+          COSIGN_YES: "true"
+          AGENT_PLATFORM_EVIDENCE_PUBLISH_TOKEN: ${{ secrets.AGENT_PLATFORM_EVIDENCE_PUBLISH_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${AGENT_PLATFORM_EVIDENCE_PUBLISH_TOKEN:?AGENT_PLATFORM_EVIDENCE_PUBLISH_TOKEN is required}"
+          evidence=../../.artifacts/production/release-evidence.json
+          digest="$(sha256sum "${evidence}" | cut -d ' ' -f 1)"
+          printf 'sha256:%s\n' "${digest}" > "${evidence}.sha256"
+          cosign sign-blob --yes \
+            --bundle "${evidence}.sigstore.json" \
+            "${evidence}"
+          cosign verify-blob \
+            --bundle "${evidence}.sigstore.json" \
+            --certificate-identity "https://github.com/${GITHUB_WORKFLOW_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${evidence}"
+          uv run --frozen python scripts/publish_evidence_assets.py \
+            --base-url "${PLATFORM_BASE_URL}" \
+            --token-env AGENT_PLATFORM_EVIDENCE_PUBLISH_TOKEN \
+            --release-id "${RELEASE_ID}" \
+            --git-sha "${GITHUB_SHA}" \
+            --image-digest "${IMAGE_DIGEST}" \
+            --kind release-evidence \
+            --minimum-retention-days 365 \
+            --asset release_evidence="${evidence}" \
+            --asset detached_digest="${evidence}.sha256" \
+            --asset signature_bundle="${evidence}.sigstore.json" \
+            --readback-dir ../../.artifacts/production/final-evidence-readback \
+            --output ../../.artifacts/production/final-evidence-publication.json
+          readback=../../.artifacts/production/final-evidence-readback
+          claimed_digest="$(tr -d '[:space:]' < "${readback}/detached_digest")"
+          actual_digest="sha256:$(sha256sum "${readback}/release_evidence" | cut -d ' ' -f 1)"
+          if [ "${claimed_digest}" != "${actual_digest}" ]; then
+            echo "::error::Published release evidence detached digest mismatch"
+            exit 1
+          fi
+          cosign verify-blob \
+            --bundle "${readback}/signature_bundle" \
+            --certificate-identity "https://github.com/${GITHUB_WORKFLOW_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${readback}/release_evidence"
+          final_uri="$(jq -er \
+            --arg release_id "${RELEASE_ID}" \
+            --arg git_sha "${GITHUB_SHA}" \
+            --arg image_digest "${IMAGE_DIGEST}" \
+            'select(
+              .verified == true and
+              .kind == "release-evidence" and
+              .release_id == $release_id and
+              .git_sha == $git_sha and
+              .image_digest == $image_digest and
+              (.assets | keys | sort) == ["detached_digest", "release_evidence", "signature_bundle"]
+            ) | .assets.release_evidence.content_uri' \
+            ../../.artifacts/production/final-evidence-publication.json)"
+          if [[ ! "${final_uri}" =~ ^https://.+/v1/artifacts/[0-9a-f-]{36}/content/sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Final release evidence URI is not immutable"
+            exit 1
+          fi
+          echo "final_uri=${final_uri}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload complete release evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: agent-platform-release-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .artifacts/supply-chain
+            .artifacts/staging
+            .artifacts/canary
+            .artifacts/production
+          if-no-files-found: error
+          retention-days: 365
+
+      - name: Publish verified release summary
+        env:
+          FINAL_EVIDENCE_URI: ${{ steps.publish_final_evidence.outputs.final_uri }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Agent Platform production release verified"
+            echo
+            echo "- Release: \`${RELEASE_ID}\`"
+            echo "- Git SHA: \`${GITHUB_SHA}\`"
+            echo "- Image: \`${IMAGE_REPOSITORY}@${IMAGE_DIGEST}\`"
+            echo "- Immutable evidence: ${FINAL_EVIDENCE_URI}"
+            echo "- GitHub evidence copy: `agent-platform-release-evidence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+      - name: Roll back production after post-deployment failure
+        if: ${{ failure() && steps.deploy_production.outcome == 'success' }}
+        env:
+          AGENT_PLATFORM_RELEASE_TOKEN: ${{ secrets.AGENT_PLATFORM_PRODUCTION_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${AGENT_PLATFORM_RELEASE_TOKEN:?AGENT_PLATFORM_RELEASE_TOKEN is required}"
+          namespace="${PLATFORM_NAMESPACE:-agent-platform}"
+          rollback_dir=".artifacts/production/rollback"
+          mkdir -p "${rollback_dir}"
+          helm status agent-platform --namespace "${namespace}" --output json \
+            > "${rollback_dir}/helm-status-before-rollback.json"
+          helm get manifest agent-platform --namespace "${namespace}" \
+            > "${rollback_dir}/manifest-before-rollback.yaml"
+          kubectl --namespace "${namespace}" get deployment \
+            agent-api agent-worker commit-worker outbox-worker \
+            --output json > "${rollback_dir}/deployments-before-rollback.json"
+          kubectl --namespace "${namespace}" get event \
+            --sort-by=.metadata.creationTimestamp \
+            > "${rollback_dir}/events-before-rollback.txt"
+
+          if jq -e --arg digest "${ROLLBACK_IMAGE_DIGEST}" \
+            '(.items | length) == 4 and
+             all(.items[].spec.template.spec.containers[]; .image | endswith("@" + $digest))' \
+            "${rollback_dir}/deployments-before-rollback.json" >/dev/null
+          then
+            printf '%s\n' "already_at_signed_target" > "${rollback_dir}/rollback-action.txt"
+          else
+            grep -F -- "@${IMAGE_DIGEST}" \
+              "${rollback_dir}/manifest-before-rollback.yaml" >/dev/null
+            helm rollback agent-platform "${ROLLBACK_REVISION}" \
+              --namespace "${namespace}" \
+              --no-hooks \
+              --wait \
+              --cleanup-on-fail \
+              --timeout 20m
+            printf '%s\n' "helm_rollback_executed" > "${rollback_dir}/rollback-action.txt"
+          fi
+
+          for deployment in agent-api agent-worker commit-worker outbox-worker; do
+            kubectl --namespace "${namespace}" rollout status \
+              "deployment/${deployment}" --timeout=10m
+          done
+          helm status agent-platform --namespace "${namespace}" --output json \
+            > "${rollback_dir}/helm-status-after.json"
+          helm history agent-platform --namespace "${namespace}" --max 30 --output json \
+            > "${rollback_dir}/helm-history-after.json"
+          kubectl --namespace "${namespace}" get deployment \
+            agent-api agent-worker commit-worker outbox-worker \
+            --output json > "${rollback_dir}/deployments-after.json"
+          jq -e --arg digest "${ROLLBACK_IMAGE_DIGEST}" \
+            '(.items | length) == 4 and
+             all(.items[].spec.template.spec.containers[]; .image | endswith("@" + $digest))' \
+            "${rollback_dir}/deployments-after.json" >/dev/null
+          uv run --directory "${PLATFORM_ROOT}" --frozen python scripts/verify_release.py \
+            --base-url "${PLATFORM_BASE_URL}" \
+            --expected-git-sha "${ROLLBACK_GIT_SHA}" \
+            --expected-image-digest "${ROLLBACK_IMAGE_DIGEST}" \
+            --expected-tool-catalog-id "${ROLLBACK_TOOL_CATALOG_ID}" \
+            --expected-tool-catalog-digest "${ROLLBACK_TOOL_CATALOG_DIGEST}" \
+            --output ../../.artifacts/production/rollback/release-verification.json
+
+      - name: Delete short-lived production kubeconfig
+        if: ${{ always() }}
+        run: rm -f -- "${KUBECONFIG}"
+
+      - name: Upload production rollback evidence
+        if: ${{ always() && failure() && steps.deploy_production.outcome == 'success' }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: agent-platform-production-rollback-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/production/rollback
+          if-no-files-found: error
+          retention-days: 365

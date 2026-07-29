@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-config
+data:
+  AGENT_ENVIRONMENT: {{ .Values.global.environment | quote }}
+  AGENT_AUTH_DISABLED: "false"
+  AGENT_WORKFLOW_BACKEND: temporal
+  AGENT_PERSISTENCE_BACKEND: postgres
+  AGENT_ARTIFACT_BACKEND: s3
+  AGENT_POLICY_BACKEND: opa
+  AGENT_JWT_ISSUER: {{ .Values.config.jwtIssuer | quote }}
+  AGENT_JWT_AUDIENCE: {{ .Values.config.jwtAudience | quote }}
+  AGENT_JWT_JWKS_URL: {{ .Values.config.jwtJwksUrl | quote }}
+  AGENT_ARTIFACT_REGION: {{ .Values.config.artifactRegion | quote }}
+  AWS_REGION: {{ .Values.config.artifactRegion | quote }}
+  AWS_DEFAULT_REGION: {{ .Values.config.artifactRegion | quote }}
+  AGENT_ARTIFACT_PRESIGN_ENABLED: {{ .Values.artifacts.presignEnabled | quote }}
+  AGENT_ARTIFACT_PRESIGN_TTL_SECONDS: {{ .Values.artifacts.presignTtlSeconds | quote }}
+  AGENT_ARTIFACT_MAX_UPLOAD_BYTES: {{ .Values.artifacts.maxUploadBytes | quote }}
+  AGENT_ARTIFACT_MAX_IN_MEMORY_BYTES: {{ .Values.artifacts.maxInMemoryBytes | quote }}
+  AGENT_ARTIFACT_RETENTION_PUBLIC_DAYS: {{ .Values.artifacts.retentionPublicDays | quote }}
+  AGENT_ARTIFACT_RETENTION_INTERNAL_DAYS: {{ .Values.artifacts.retentionInternalDays | quote }}
+  AGENT_ARTIFACT_RETENTION_CONFIDENTIAL_DAYS: {{ .Values.artifacts.retentionConfidentialDays | quote }}
+  AGENT_ARTIFACT_RETENTION_RESTRICTED_DAYS: {{ .Values.artifacts.retentionRestrictedDays | quote }}
+  AGENT_ARTIFACT_RETENTION_SECRET_DAYS: {{ .Values.artifacts.retentionSecretDays | quote }}
+  AGENT_ARTIFACT_MALWARE_SCAN_MODE: {{ .Values.artifacts.malwareScanMode | quote }}
+  AGENT_ARTIFACT_MALWARE_SCAN_URL: {{ .Values.artifacts.malwareScanUrl | quote }}
+  AGENT_ARTIFACT_MALWARE_HEALTH_URL: {{ .Values.artifacts.malwareHealthUrl | quote }}
+  AGENT_ARTIFACT_MALWARE_EGRESS_PROXY_URL: {{ .Values.artifacts.malwareEgressProxyUrl | quote }}
+  AGENT_ARTIFACT_MALWARE_SCAN_TIMEOUT_SECONDS: {{ .Values.artifacts.malwareScanTimeoutSeconds | quote }}
+  AGENT_ARTIFACT_MALWARE_MAX_RESULT_AGE_SECONDS: {{ .Values.artifacts.malwareMaxResultAgeSeconds | quote }}
+  AGENT_RELEASE_GIT_SHA: {{ .Values.global.gitSha | quote }}
+  AGENT_RELEASE_IMAGE_DIGEST: {{ .Values.global.imageDigest | quote }}
+
+  AGENT_TOOL_CATALOG_PATH: "/etc/agent-platform/tool-catalog/tool-catalog.json"
+  AGENT_TOOL_CATALOG_SHA256: {{ .Values.global.toolCatalogDigest | quote }}
+  AGENT_COST_RATE_CATALOG_PATH: "/etc/agent-platform/cost-rates/catalog.json"
+  AGENT_COST_RATE_CATALOG_SHA256: {{ .Values.global.costRateCatalogDigest | quote }}
+  AGENT_TOOL_GATEWAY_URL: {{ .Values.toolGateway.url | quote }}
+  AGENT_TOOL_GATEWAY_HEALTH_URL: {{ .Values.toolGateway.healthUrl | quote }}
+  AGENT_TOOL_GATEWAY_TIMEOUT_SECONDS: {{ .Values.toolGateway.timeoutSeconds | quote }}
+  AGENT_TOOL_GATEWAY_MAX_IN_FLIGHT: {{ .Values.toolGateway.maxInFlight | quote }}
+  AGENT_TOOL_GATEWAY_MAX_QUEUED: {{ .Values.toolGateway.maxQueued | quote }}
+  AGENT_TOOL_GATEWAY_QUEUE_TIMEOUT_SECONDS: {{ .Values.toolGateway.queueTimeoutSeconds | quote }}
+  AGENT_TOOL_GATEWAY_CIRCUIT_FAILURE_THRESHOLD: {{ .Values.toolGateway.circuitFailureThreshold | quote }}
+  AGENT_TOOL_GATEWAY_CIRCUIT_RECOVERY_SECONDS: {{ .Values.toolGateway.circuitRecoverySeconds | quote }}
+  AGENT_QUOTA_BACKEND: {{ .Values.quota.backend | quote }}
+  AGENT_PRE_AUTH_IP_REQUESTS_PER_MINUTE: {{ .Values.quota.preAuthIpRequestsPerMinute | quote }}
+  AGENT_USER_REQUESTS_PER_MINUTE: {{ .Values.quota.userRequestsPerMinute | quote }}
+  AGENT_TENANT_REQUESTS_PER_MINUTE: {{ .Values.quota.tenantRequestsPerMinute | quote }}
+  AGENT_USE_CASE_REQUESTS_PER_MINUTE: {{ .Values.quota.useCaseRequestsPerMinute | quote }}
+  AGENT_IP_REQUESTS_PER_MINUTE: {{ .Values.quota.ipRequestsPerMinute | quote }}
+  AGENT_TENANT_MAX_ACTIVE_RUNS: {{ .Values.capacity.tenantMaxActiveRuns | quote }}
+  AGENT_QUEUE_BACKLOG_SOFT_LIMIT: {{ .Values.capacity.queueBacklogSoftLimit | quote }}
+  AGENT_QUEUE_OLDEST_AGE_SOFT_LIMIT_SECONDS: {{ .Values.capacity.queueOldestAgeSoftLimitSeconds | quote }}
+  AGENT_CRITICAL_QUEUE_MULTIPLIER: {{ .Values.capacity.criticalQueueMultiplier | quote }}
+  AGENT_CAPACITY_RESERVATION_GRACE_SECONDS: {{ .Values.capacity.reservationGraceSeconds | quote }}
+  AGENT_TENANT_DAILY_BUDGET_USD: {{ .Values.capacity.tenantDailyBudgetUsd | quote }}
+  AGENT_TENANT_MONTHLY_BUDGET_USD: {{ .Values.capacity.tenantMonthlyBudgetUsd | quote }}
+  AGENT_SECRET_BACKEND: aws-secrets-manager
+  AGENT_SECRETS_MANAGER_PREFIX: {{ .Values.config.secretsManagerPrefix | quote }}
+  AGENT_PROMPT_REGISTRY_PATH: {{ .Values.config.promptRegistryPath | quote }}
+  AGENT_TEMPORAL_ADDRESS: {{ .Values.config.temporalAddress | quote }}
+  AGENT_TEMPORAL_NAMESPACE: {{ .Values.config.temporalNamespace | quote }}
+  AGENT_TEMPORAL_TLS: {{ .Values.config.temporalTls | quote }}
+  AGENT_ARTIFACT_BUCKET: {{ .Values.config.artifactBucket | quote }}
+  AGENT_ARTIFACT_STAGING_BUCKET: {{ .Values.config.artifactStagingBucket | quote }}
+  AGENT_OPA_URL: {{ .Values.config.opaUrl | quote }}
+  AGENT_OTLP_ENDPOINT: {{ .Values.observability.otlpEndpoint | quote }}
+  AGENT_STORE_MODEL_CONTENT: "false"
+  AGENT_TRACE_CONTENT_CAPTURE: {{ .Values.observability.traceContentCapture | quote }}
+  AGENT_POLICY_FAIL_CLOSED: {{ .Values.policy.failClosed | quote }}
+  AGENT_TRUSTED_PROXY_CIDRS: {{ .Values.config.trustedProxyCidrs | toJson | quote }}
+  NO_PROXY: {{ .Values.egress.noProxy | quote }}

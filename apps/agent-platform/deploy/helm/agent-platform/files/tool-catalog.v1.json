@@ -1,0 +1,287 @@
+{
+  "schema_version": "1.0",
+  "catalog_id": "enterprise-tools-2026-07-24",
+  "tools": [
+    {
+      "name": "knowledge.search",
+      "version": "1.0.0",
+      "description": "Search tenant-authorized enterprise knowledge through the internal tool gateway.",
+      "capability_name": "knowledge.search",
+      "effect": "read",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        },
+        "required": [
+          "query",
+          "limit"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "properties": {
+                "source_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uri": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "captured_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "content_hash": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "trust": {
+                  "const": "authorized but untrusted"
+                }
+              },
+              "required": [
+                "source_id",
+                "uri",
+                "title",
+                "content",
+                "captured_at",
+                "content_hash",
+                "trust"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "row_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "row_count",
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "risk": "medium",
+      "required_scopes": [
+        "knowledge:read"
+      ],
+      "commit_scopes": [],
+      "supported_data_classes": [
+        "public",
+        "internal"
+      ],
+      "allowed_network_targets": [
+        "enterprise-knowledge"
+      ],
+      "timeout_seconds": 15,
+      "max_result_bytes": 1000000,
+      "idempotency": "none",
+      "approval_policy": "none",
+      "adapter_ref": "enterprise.knowledge.search.v1",
+      "enabled": true
+    },
+    {
+      "name": "email.prepare",
+      "version": "1.0.0",
+      "description": "Prepare an enterprise email; delivery occurs only in the isolated Commit Worker.",
+      "capability_name": "email.prepare",
+      "effect": "prepare",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "recipients": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "format": "email"
+            }
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100000
+          },
+          "artifact_ids": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "recipients",
+          "subject",
+          "body",
+          "artifact_ids"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "recipients": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "subject": {
+                "type": "string"
+              },
+              "body_preview": {
+                "type": "string"
+              },
+              "artifact_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "side_effect": {
+                "const": "none_until_commit"
+              }
+            },
+            "required": [
+              "recipients",
+              "subject",
+              "body_preview",
+              "artifact_ids",
+              "side_effect"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "external_operation_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "committed_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "result_summary": {
+                "type": "object"
+              },
+              "idempotency_key": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "external_operation_id",
+              "committed_at",
+              "result_summary",
+              "idempotency_key"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "passed": {
+                "type": "boolean"
+              },
+              "verified_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "method": {
+                "type": "string",
+                "minLength": 1
+              },
+              "details": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "passed",
+              "verified_at",
+              "method",
+              "details"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "compensated": {
+                "type": "boolean"
+              },
+              "compensated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "compensated",
+              "compensated_at"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "risk": "high",
+      "required_scopes": [
+        "email:prepare"
+      ],
+      "commit_scopes": [
+        "email:commit"
+      ],
+      "supported_data_classes": [
+        "internal"
+      ],
+      "allowed_network_targets": [
+        "enterprise-email"
+      ],
+      "timeout_seconds": 15,
+      "max_result_bytes": 100000,
+      "idempotency": "business_key",
+      "approval_policy": "human",
+      "adapter_ref": "enterprise.email.v1",
+      "enabled": true
+    }
+  ]
+}

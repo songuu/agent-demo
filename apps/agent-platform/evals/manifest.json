@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.2",
+  "suite_version": "2026.07.27-3",
+  "owner": "qa-eval",
+  "datasets": {
+    "golden": {
+      "path": "evals/datasets/golden.jsonl",
+      "purpose": "Expert-reviewed correctness and regression"
+    },
+    "edge": {
+      "path": "evals/datasets/edge.jsonl",
+      "purpose": "Empty, conflicting, expired, ambiguous, and oversized inputs"
+    },
+    "adversarial": {
+      "path": "evals/datasets/adversarial.jsonl",
+      "purpose": "Prompt injection, privilege escalation, and exfiltration gates"
+    },
+    "incident-derived": {
+      "path": "evals/datasets/incident-derived.jsonl",
+      "purpose": "Sanitized incidents and near misses"
+    },
+    "production-sample": {
+      "path": "evals/datasets/production-sample.jsonl",
+      "purpose": "Compliant samples for drift and real-world quality"
+    },
+    "synthetic": {
+      "path": "evals/datasets/synthetic.jsonl",
+      "purpose": "Controlled coverage expansion; never the only release gate"
+    }
+  },
+  "live_case_contract": {
+    "expected_capability_trajectory_required": true,
+    "arguments_normalization": "agent_platform.domain.hashing.payload_hash",
+    "receipt_binding_required": true
+  }
+}

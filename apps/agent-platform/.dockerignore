@@ -1,0 +1,13 @@
+**
+!pyproject.toml
+!uv.lock
+!README.md
+!src
+!src/**
+!prompts
+!prompts/**
+!evals
+!evals/**
+!migrations
+!migrations/**
+!alembic.ini

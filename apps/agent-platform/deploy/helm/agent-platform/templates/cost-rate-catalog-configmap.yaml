@@ -1,0 +1,25 @@
+{{- $catalog := .Files.Get "files/platform-cost-rates.v1.json" -}}
+{{- $embeddedDigest := printf "sha256:%s" (sha256sum $catalog) -}}
+{{- $expectedDigest := required "global.costRateCatalogDigest is required" .Values.global.costRateCatalogDigest -}}
+{{- if ne $embeddedDigest $expectedDigest -}}
+{{- fail (printf "embedded cost rate catalog digest %s does not match global.costRateCatalogDigest %s" $embeddedDigest $expectedDigest) -}}
+{{- end -}}
+{{- $catalogDocument := fromJson $catalog -}}
+{{- $embeddedCatalogId := get $catalogDocument "catalog_id" -}}
+{{- $expectedCatalogId := required "global.costRateCatalogId is required" .Values.global.costRateCatalogId -}}
+{{- if ne $embeddedCatalogId $expectedCatalogId -}}
+{{- fail (printf "embedded cost rate catalog id %s does not match global.costRateCatalogId %s" $embeddedCatalogId $expectedCatalogId) -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-platform-cost-rates
+  labels:
+    app.kubernetes.io/name: agent-platform
+    agent.platform/cost-rate-catalog-id: {{ .Values.global.costRateCatalogId | quote }}
+  annotations:
+    agent.platform/cost-rate-catalog-digest: {{ .Values.global.costRateCatalogDigest | quote }}
+immutable: true
+data:
+  catalog.json: |
+{{ $catalog | indent 4 }}

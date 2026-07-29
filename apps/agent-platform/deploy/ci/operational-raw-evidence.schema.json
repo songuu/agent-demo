@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-platform.example/schemas/operational-raw-evidence-1.0.json",
+  "title": "Machine-produced raw operational gate evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "gate_id",
+    "release_id",
+    "git_sha",
+    "image_digest",
+    "environment",
+    "captured_at",
+    "producer",
+    "measurements"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "gate_id": {"type": "string", "minLength": 1},
+    "release_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "image_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "environment": {"enum": ["staging", "production"]},
+    "captured_at": {"type": "string", "format": "date-time"},
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "collector", "run_id", "evidence_uri"],
+      "properties": {
+        "kind": {"const": "machine"},
+        "collector": {"type": "string", "minLength": 1},
+        "run_id": {"type": "string", "minLength": 1},
+        "evidence_uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        }
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["samples", "source_uri"],
+        "properties": {
+          "samples": {
+            "type": "array",
+            "maxItems": 10000,
+            "items": {
+              "type": ["string", "number", "integer", "boolean"]
+            }
+          },
+          "source_uri": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "hard_gates_pass_rate_min": 1.0,
+  "golden_absolute_success_rate_min": 0.97,
+  "golden_max_drop_from_production": 0.01,
+  "evidence_coverage_min": 0.99,
+  "must_criterion_verification_coverage_min": 1.0,
+  "tool_selection_accuracy_min": 0.98,
+  "high_risk_tool_misselections_max": 0,
+  "average_cost_regression_max": 0.15,
+  "p95_latency_regression_max": 0.2,
+  "high_risk_human_review_samples_min": 50,
+  "major_human_review_findings_max": 0
+}

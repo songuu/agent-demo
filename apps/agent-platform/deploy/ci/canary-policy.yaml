@@ -1,0 +1,64 @@
+schema_version: "1.0"
+policy_version: "1.1"
+automatic_rollback: true
+provider_prerequisite:
+  required: true
+  source: external_progressive_delivery_controller
+  required_capabilities:
+    - immutable_digest_deployment
+    - traffic_shaping
+    - metrics_observation
+    - automatic_rollback
+    - evidence_export
+stop_conditions:
+  - any_hard_gate_failure
+  - sev1_or_sev2_safety_alert
+  - slo_fast_burn
+  - duplicate_external_side_effect
+metric_gates:
+  request_success_rate_percent: {comparison: gte, threshold: 99}
+  p95_latency_regression_percent: {comparison: lte, threshold: 20}
+  cost_regression_percent: {comparison: lte, threshold: 15}
+  error_budget_burn_rate: {comparison: lte, threshold: 1}
+  critical_safety_alerts: {comparison: eq, threshold: 0}
+  duplicate_external_side_effects: {comparison: eq, threshold: 0}
+stop_condition_gates:
+  any_hard_gate_failure: {comparison: eq, threshold: 0}
+  sev1_or_sev2_safety_alert: {comparison: eq, threshold: 0}
+  slo_fast_burn: {comparison: eq, threshold: false}
+  duplicate_external_side_effect: {comparison: eq, threshold: 0}
+phases:
+  - id: shadow
+    promotion_stage: canary
+    traffic: copied
+    external_writes: false
+    minimum_observation_seconds: 900
+    exit: hard_gates_pass
+  - id: internal
+    promotion_stage: canary
+    audience: internal_test_tenants
+    minimum_observation_seconds: 1800
+    observe: [human_feedback, trace, approval]
+    exit: no_major_findings
+  - id: 1%
+    promotion_stage: canary
+    audience: low_risk_read_only
+    minimum_observation_seconds: 14400
+    exit: slo_eval_safety_stable
+  - id: 10%
+    promotion_stage: canary
+    audience: expanded_tenants
+    minimum_observation_seconds: 28800
+    exit: no_regression_and_cost_within_budget
+  - id: 50%
+    promotion_stage: canary
+    audience: representative_production
+    minimum_observation_seconds: 14400
+    observe: [peak_load, dependency_failures]
+    exit: stable
+  - id: 100%
+    promotion_stage: production
+    audience: all_approved_tenants
+    minimum_observation_seconds: 3600
+    retain_fast_rollback: true
+    exit: release_closed

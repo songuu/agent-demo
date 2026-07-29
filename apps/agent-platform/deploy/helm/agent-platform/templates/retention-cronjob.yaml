@@ -1,0 +1,59 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: retention-worker
+spec:
+  schedule: {{ .Values.retentionWorker.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: {{ .Values.retentionWorker.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels: {app: retention-worker, plane: maintenance}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: retention-worker
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: retention-worker
+              image: "{{ .Values.global.imageRepository }}@{{ .Values.global.imageDigest }}"
+              imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+              command: ["agent-platform-retention"]
+              envFrom:
+                - configMapRef: {name: agent-platform-config}
+              env:
+                - name: AGENT_PROCESS_ROLE
+                  value: "retention-worker"
+                - name: HTTPS_PROXY
+                  value: {{ .Values.egress.retentionProxyUrl | quote }}
+
+                - name: AGENT_DATABASE_DSN
+                  valueFrom:
+                    secretKeyRef: {name: {{ .Values.secrets.databaseSecretName }}, key: retention-dsn}
+                - name: AGENT_ARTIFACT_KMS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.secrets.cryptoSecretName }}
+                      key: {{ .Values.secrets.artifactKmsKeyIdKey }}
+              resources:
+                requests: {cpu: "100m", memory: "256Mi"}
+                limits: {cpu: "1", memory: "1Gi"}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - {name: tmp, mountPath: /tmp}
+          volumes:
+            - name: tmp
+              emptyDir: {sizeLimit: 256Mi}

@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outbox-worker
+spec:
+  replicas: {{ .Values.outboxWorker.replicas }}
+  selector:
+    matchLabels: {app: outbox-worker}
+  template:
+    metadata:
+      labels: {app: outbox-worker, plane: delivery}
+    spec:
+      serviceAccountName: outbox-worker
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: outbox-worker
+          image: "{{ .Values.global.imageRepository }}@{{ .Values.global.imageDigest }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["agent-platform-outbox"]
+          envFrom:
+            - configMapRef: {name: agent-platform-config}
+          env:
+            - name: AGENT_PROCESS_ROLE
+              value: "outbox-worker"
+            - name: HTTPS_PROXY
+              value: {{ .Values.outboxWorker.webhookEgressProxyUrl | quote }}
+            - name: AGENT_WEBHOOK_EGRESS_PROXY_URL
+              value: {{ .Values.outboxWorker.webhookEgressProxyUrl | quote }}
+
+            - name: AGENT_DATABASE_DSN
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.databaseSecretName }}, key: outbox-dsn}
+          resources:
+            requests: {cpu: "100m", memory: "256Mi"}
+            limits: {cpu: "1", memory: "1Gi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import socket; socket.create_connection(('{{ .Values.config.databaseHost }}', {{ .Values.config.databasePort }}), 3).close()"
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}

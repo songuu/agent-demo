@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-platform.example/schemas/release-approvals-1.1.json",
+  "title": "Agent Platform signed external release approval bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_id",
+    "git_sha",
+    "image_digest",
+    "issued_at",
+    "signer",
+    "approvals"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.1"
+    },
+    "release_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "git_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "image_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "signer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity",
+        "issuer"
+      ],
+      "properties": {
+        "identity": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "issuer": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        }
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "minItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "release_id",
+          "git_sha",
+          "image_digest",
+          "actor",
+          "role",
+          "decision",
+          "approved_at",
+          "authentication",
+          "evidence_uri"
+        ],
+        "properties": {
+          "release_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          },
+          "git_sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "image_digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "actor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "role": {
+            "enum": [
+              "security",
+              "business",
+              "sre",
+              "data-system-owner"
+            ]
+          },
+          "decision": {
+            "const": "approved"
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "authentication": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "assurance",
+              "method",
+              "authenticated_at"
+            ],
+            "properties": {
+              "assurance": {
+                "const": "phishing-resistant"
+              },
+              "method": {
+                "enum": [
+                  "webauthn",
+                  "fido2-security-key",
+                  "piv"
+                ]
+              },
+              "authenticated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "evidence_uri": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://"
+          }
+        }
+      },
+      "maxItems": 4
+    }
+  }
+}

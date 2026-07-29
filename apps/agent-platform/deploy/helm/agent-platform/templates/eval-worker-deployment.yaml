@@ -1,0 +1,36 @@
+{{- if ne .Values.global.environment "prod" }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: offline-release-eval
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels: {app: eval-worker, plane: quality}
+    spec:
+      serviceAccountName: eval-worker
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: offline-release-eval
+          image: "{{ .Values.global.imageRepository }}@{{ .Values.global.imageDigest }}"
+          command: ["python", "evals/run_release_evals.py"]
+          args: ["--mode", "offline", "--output", "/dev/stdout"]
+          resources:
+            requests: {cpu: "250m", memory: "512Mi"}
+            limits: {cpu: "1", memory: "2Gi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

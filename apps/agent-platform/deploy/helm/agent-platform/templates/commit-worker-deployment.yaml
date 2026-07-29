@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commit-worker
+spec:
+  replicas: {{ .Values.commitWorker.replicas }}
+  selector:
+    matchLabels: {app: commit-worker}
+  template:
+    metadata:
+      labels: {app: commit-worker, plane: commit}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9464"
+    spec:
+      serviceAccountName: commit-worker
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: commit-worker
+          image: "{{ .Values.global.imageRepository }}@{{ .Values.global.imageDigest }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["agent-platform-commit-worker"]
+          ports:
+            - {name: health, containerPort: 8081}
+            - {name: metrics, containerPort: 9464}
+          envFrom:
+            - configMapRef: {name: agent-platform-config}
+          env:
+            - name: AGENT_PROCESS_ROLE
+              value: "commit-worker"
+            - name: HTTPS_PROXY
+              value: {{ .Values.egress.commitProxyUrl | quote }}
+            - name: AGENT_TOOL_GATEWAY_EGRESS_PROXY_URL
+              value: {{ .Values.egress.commitProxyUrl | quote }}
+            - name: AGENT_ACTION_PAYLOAD_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.cryptoSecretName }}, key: action-payload-encryption-key}
+            - name: AGENT_MEMORY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.cryptoSecretName }}, key: memory-encryption-key}
+            - name: AGENT_ARTIFACT_KMS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.cryptoSecretName }}
+                  key: {{ .Values.secrets.artifactKmsKeyIdKey }}
+            - name: AGENT_ARTIFACT_RESTRICTED_KMS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.cryptoSecretName }}
+                  key: {{ .Values.secrets.artifactRestrictedKmsKeyIdKey }}
+            - name: AGENT_ARTIFACT_SECRET_KMS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.cryptoSecretName }}
+                  key: {{ .Values.secrets.artifactSecretKmsKeyIdKey }}
+            - name: AGENT_DATABASE_DSN
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.databaseSecretName }}, key: commit-dsn}
+            - name: AGENT_QUOTA_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.quotaSecretName }}
+                  key: {{ .Values.secrets.quotaRedisUrlKey }}
+            - name: AGENT_QUOTA_KEY_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.quotaSecretName }}
+                  key: {{ .Values.secrets.quotaKeyHmacSecretKey }}
+            - name: AGENT_TEMPORAL_COMMIT_TASK_QUEUE
+              value: {{ .Values.commitWorker.taskQueue | quote }}
+            - name: AGENT_MAX_CONCURRENT_ACTIVITIES
+              value: {{ .Values.commitWorker.maxConcurrentActivities | quote }}
+            - name: AGENT_BUSINESS_CREDENTIAL_REF
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.businessSystemSecretName }}, key: broker-ref}
+          resources:
+            requests: {cpu: "250m", memory: "512Mi"}
+            limits: {cpu: "1", memory: "2Gi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            httpGet: {path: /health, port: health}
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /ready, port: health}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: health}
+            periodSeconds: 20
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - name: tool-catalog
+              mountPath: /etc/agent-platform/tool-catalog
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 512Mi}
+        - name: tool-catalog
+          configMap:
+            name: {{ include "agent-platform.toolCatalogConfigMapName" . }}

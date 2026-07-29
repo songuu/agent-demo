@@ -1,0 +1,123 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-platform"
+version = "1.0.0"
+description = "Deterministic control plane and bounded Agent execution platform."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+dependencies = [
+  "alembic>=1.16,<2",
+  "asyncpg>=0.30,<1",
+  "boto3>=1.39,<2",
+  "cryptography>=48,<49",
+  "defusedxml>=0.7,<1",
+  "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
+  "jsonschema>=4.25,<5",
+  "openai>=2.47,<3",
+  "openai-agents>=0.18,<0.19",
+  "opentelemetry-api>=1.37,<2",
+  "opentelemetry-exporter-otlp>=1.37,<2",
+  "opentelemetry-sdk>=1.37,<2",
+  "orjson>=3.10,<4",
+  "prometheus-client>=0.22,<1",
+  "pydantic>=2.11,<3",
+  "pydantic-settings>=2.10,<3",
+  "PyJWT[crypto]>=2.13,<3",
+  "redis>=6,<7",
+  "sqlalchemy[asyncio]>=2.0,<3",
+  "structlog>=25,<26",
+  "temporalio>=1.16,<2",
+  "tenacity>=9,<10",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "bandit>=1.8,<2",
+  "mypy>=1.17,<2",
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1.1,<2",
+  "pytest-cov>=6,<7",
+  "respx>=0.22,<1",
+  "ruff>=0.12,<1",
+  "testcontainers[postgres]>=4.10,<5",
+]
+
+[project.scripts]
+agent-platform-api = "agent_platform.api.cli:main"
+agent-platform-agent-worker = "agent_platform.workflows.worker:agent_main"
+agent-platform-commit-worker = "agent_platform.workflows.worker:commit_main"
+agent-platform-retention = "agent_platform.infrastructure.retention_worker:main"
+agent-platform-outbox = "agent_platform.infrastructure.outbox:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_platform"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+  "integration: requires infrastructure such as PostgreSQL or OPA",
+  "e2e: runs an end-to-end platform flow",
+  "security: exercises a security invariant",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "RUF"]
+ignore = [
+  "S101", # pytest assertions are intentional.
+  "S105", # tests and secret-field names can look like hard-coded passwords.
+  "S106",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/**" = ["E501", "F401"]
+"tests/**" = ["S106", "S311"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+exclude = ["migrations"]
+
+[[tool.mypy.overrides]]
+module = [
+  "agents.*",
+  "boto3.*",
+
+  "prometheus_client.*",
+  "testcontainers.*",
+]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+source = ["agent_platform"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+skips = ["B101"]
+
+[dependency-groups]
+dev = [
+    "pip-audit>=2.9,<3",
+    "types-defusedxml>=0.7,<1",
+    "types-jsonschema>=4.25,<5",
+    "types-pyyaml>=6.0.12,<7",
+]

@@ -1,0 +1,72 @@
+{
+  "uid": "agent-platform-safety",
+  "title": "Agent Platform - Safety",
+  "schemaVersion": 39,
+  "tags": [
+    "agent-platform",
+    "safety"
+  ],
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Security events",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (category, severity, outcome) (rate(agent_security_events_total[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Trajectory pause and terminate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (severity, reason) (rate(agent_trajectory_alerts_total[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Policy decisions",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (decision, reason_code) (rate(agent_policy_decisions_total[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Kill switch state",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "max by (scope, mode) (agent_kill_switch_state)"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Sensitive data and verification failures",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:verification_failure:rate5m"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Tenant and prompt injection anomalies",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (category, outcome) (rate(agent_security_events_total{category=~\"cross_tenant.*|prompt_injection|sensitive_data_egress\"}[5m]))"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-platform.example/schemas/observability-evidence-1.0.json",
+  "title": "Agent Platform post-release observability evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_id",
+    "namespace",
+    "git_sha",
+    "image_digest",
+    "generated_at",
+    "prometheus_rule",
+    "grafana_configmap",
+    "otel_collector",
+    "prometheus",
+    "alertmanager",
+    "trace_backend",
+    "grafana",
+    "alert_delivery",
+    "applied"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "release_id": {"$ref": "#/$defs/releaseId"},
+    "namespace": {"type": "string", "minLength": 1, "maxLength": 253},
+    "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "image_digest": {"$ref": "#/$defs/sha256"},
+    "generated_at": {"$ref": "#/$defs/timestamp"},
+    "prometheus_rule": {"const": "agent-platform"},
+    "grafana_configmap": {"const": "agent-platform-grafana-dashboards"},
+    "otel_collector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "service", "health"],
+      "properties": {
+        "namespace": {"type": "string", "minLength": 1},
+        "service": {"type": "string", "minLength": 1},
+        "health": {"const": "ok"}
+      }
+    },
+    "prometheus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "namespace",
+        "service",
+        "scrape_target_up",
+        "query_api",
+        "rules_loaded"
+      ],
+      "properties": {
+        "namespace": {"type": "string", "minLength": 1},
+        "service": {"type": "string", "minLength": 1},
+        "scrape_target_up": {"const": true},
+        "query_api": {"const": "ok"},
+        "rules_loaded": {"const": true}
+      }
+    },
+    "alertmanager": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "namespace",
+        "service",
+        "prometheus_active_alertmanager",
+        "route_receiver_config_present"
+      ],
+      "properties": {
+        "namespace": {"type": "string", "minLength": 1},
+        "service": {"type": "string", "minLength": 1},
+        "prometheus_active_alertmanager": {"const": true},
+        "route_receiver_config_present": {"const": true}
+      }
+    },
+    "trace_backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "service", "trace_id", "synthetic_trace_roundtrip"],
+      "properties": {
+        "namespace": {"type": "string", "minLength": 1},
+        "service": {"type": "string", "minLength": 1},
+        "trace_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "synthetic_trace_roundtrip": {"const": true}
+      }
+    },
+    "grafana_sidecar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "deployment", "label", "watches_all_namespaces"],
+      "properties": {
+        "namespace": {"type": "string", "minLength": 1},
+        "deployment": {"type": "string", "minLength": 1},
+        "label": {"const": "grafana_dashboard=1"},
+        "watches_all_namespaces": {"const": true}
+      }
+    },
+    "grafana": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_url", "runtime_api_readback", "dashboard_count", "dashboards"],
+      "properties": {
+        "api_url": {"$ref": "#/$defs/httpsUri"},
+        "runtime_api_readback": {"const": true},
+        "dashboard_count": {"const": 6},
+        "dashboards": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "uid",
+              "title",
+              "version",
+              "release_tags",
+              "release_identity_verified"
+            ],
+            "properties": {
+              "uid": {"type": "string", "minLength": 1},
+              "title": {"type": "string", "minLength": 1},
+              "version": {"type": "integer", "minimum": 1},
+              "release_tags": {
+                "type": "array",
+                "minItems": 3,
+                "maxItems": 3,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^agent-platform-(release-id|git-sha|image-digest):"
+                }
+              },
+              "release_identity_verified": {"const": true}
+            }
+          }
+        }
+      }
+    },
+    "alert_delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alertmanager_api_url",
+        "delivery_id",
+        "release_id",
+        "git_sha",
+        "image_digest",
+        "synthetic_alert_submitted",
+        "alertmanager_api_readback",
+        "synthetic_alert_resolved",
+        "receiver_delivery_verified",
+        "receiver",
+        "received_at",
+        "receipt_evidence_uri",
+        "receipt_evidence_sha256",
+        "immutable_receipt_readback"
+      ],
+      "properties": {
+        "alertmanager_api_url": {"$ref": "#/$defs/httpsUri"},
+        "delivery_id": {"type": "string", "pattern": "^release-check-[0-9a-f]{64}$"},
+        "release_id": {"$ref": "#/$defs/releaseId"},
+        "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "image_digest": {"$ref": "#/$defs/sha256"},
+        "synthetic_alert_submitted": {"const": true},
+        "alertmanager_api_readback": {"const": true},
+        "synthetic_alert_resolved": {"const": true},
+        "receiver_delivery_verified": {"const": true},
+        "receiver": {"type": "string", "minLength": 1},
+        "received_at": {"$ref": "#/$defs/timestamp"},
+        "receipt_evidence_uri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://.*sha256:[0-9a-f]{64}"
+        },
+        "receipt_evidence_sha256": {"$ref": "#/$defs/sha256"},
+        "immutable_receipt_readback": {"const": true}
+      }
+    },
+    "applied": {"const": true}
+  },
+  "$defs": {
+    "releaseId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "httpsUri": {"type": "string", "format": "uri", "pattern": "^https://"}
+  }
+}

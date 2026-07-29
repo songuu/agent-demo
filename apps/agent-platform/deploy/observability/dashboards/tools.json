@@ -1,0 +1,75 @@
+{
+  "uid": "agent-platform-tools",
+  "title": "Agent Platform - Tools",
+  "schemaVersion": 39,
+  "tags": [
+    "agent-platform",
+    "tools"
+  ],
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Tool call outcomes",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (tool, effect, status) (rate(agent_tool_calls_total[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Tool error ratio and P95 latency",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:tool_error:ratio5m"
+        },
+        {
+          "expr": "agent:tool_latency:p95"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Policy denials by reason",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:policy_denial:rate5m"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Tool result size P95",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(agent_tool_result_bytes_bucket[5m])))"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "MCP server health",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "min by (server) (agent_mcp_server_health)"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "MCP result size",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, server) (rate(agent_mcp_result_bytes_bucket[5m])))"
+        }
+      ]
+    }
+  ]
+}

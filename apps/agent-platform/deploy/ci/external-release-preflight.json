@@ -1,0 +1,111 @@
+{
+  "schema_version": "1.0",
+  "default_branch": "main",
+  "branch_protection": {
+    "minimum_approvals": 1,
+    "required_status_checks": [
+      {
+        "context": "Quality, policy, deployment, and offline eval gates",
+        "integration_id": 15368
+      }
+    ],
+    "require_strict_status_checks": true,
+    "require_no_bypass": true
+  },
+  "deployment_policy": {
+    "type": "tag",
+    "name": "agent-platform-v*",
+    "allow_additional": false
+  },
+  "environments": {
+    "agent-platform-staging": {
+      "workflow_job": "staging",
+      "minimum_reviewers": 0,
+      "prevent_self_review": false,
+      "required_variables": [
+        "AGENT_PLATFORM_ALERT_DELIVERY_RECEIPT_BASE_URL",
+        "AGENT_PLATFORM_ALERTMANAGER_API_URL",
+        "AGENT_PLATFORM_EVAL_FAULT_HARNESS_SECRET_NAME",
+        "AGENT_PLATFORM_EVAL_FAULT_HARNESS_TOKEN_KEY",
+        "AGENT_PLATFORM_EVAL_FAULT_HARNESS_URL",
+        "AGENT_PLATFORM_EVAL_FAULT_RECEIPT_PUBLIC_KEY_B64",
+        "AGENT_PLATFORM_EVAL_FAULT_RECEIPT_SIGNER_IDENTITY",
+        "AGENT_PLATFORM_GRAFANA_API_URL",
+        "AGENT_PLATFORM_GRAFANA_DEPLOYMENT",
+        "AGENT_PLATFORM_GRAFANA_NAMESPACE",
+        "AGENT_PLATFORM_NAMESPACE",
+        "AGENT_PLATFORM_OBSERVABILITY_NAMESPACE",
+        "AGENT_PLATFORM_OTEL_SERVICE",
+        "AGENT_PLATFORM_STAGING_HUMAN_REVIEW_SERVICE_URL",
+        "AGENT_PLATFORM_STAGING_LIVE_BASELINE_SIGNER_IDENTITY",
+        "AGENT_PLATFORM_STAGING_LIVE_BASELINE_SIGNER_ISSUER",
+        "AGENT_PLATFORM_STAGING_LIVE_BASELINE_URI",
+        "AGENT_PLATFORM_STAGING_URL"
+      ],
+      "required_secrets": [
+        "AGENT_PLATFORM_ALERT_DELIVERY_RECEIPT_TOKEN",
+        "AGENT_PLATFORM_ALERTMANAGER_API_TOKEN",
+        "AGENT_PLATFORM_EVAL_FAULT_TOKEN",
+        "AGENT_PLATFORM_GRAFANA_API_TOKEN",
+        "AGENT_PLATFORM_STAGING_HELM_VALUES_B64",
+        "AGENT_PLATFORM_STAGING_HUMAN_REVIEW_SERVICE_TOKEN",
+        "AGENT_PLATFORM_STAGING_KUBECONFIG_B64",
+        "AGENT_PLATFORM_STAGING_RELEASE_TOKEN"
+      ]
+    },
+    "agent-platform-production-canary": {
+      "workflow_job": "production_canary",
+      "minimum_reviewers": 0,
+      "prevent_self_review": false,
+      "required_variables": [
+        "AGENT_PLATFORM_CANARY_EVIDENCE_SIGNER_IDENTITY",
+        "AGENT_PLATFORM_CANARY_EVIDENCE_SIGNER_ISSUER",
+        "AGENT_PLATFORM_CANARY_EVIDENCE_URI",
+        "AGENT_PLATFORM_CANARY_URL"
+      ],
+      "required_secrets": [
+        "AGENT_PLATFORM_CANARY_EVIDENCE_BEARER_TOKEN",
+        "AGENT_PLATFORM_CANARY_RELEASE_TOKEN"
+      ]
+    },
+    "agent-platform-production": {
+      "workflow_job": "production",
+      "minimum_reviewers": 1,
+      "prevent_self_review": true,
+      "required_variables": [
+        "AGENT_PLATFORM_ALERT_DELIVERY_RECEIPT_BASE_URL",
+        "AGENT_PLATFORM_ALERTMANAGER_API_URL",
+        "AGENT_PLATFORM_CANARY_EVIDENCE_SIGNER_IDENTITY",
+        "AGENT_PLATFORM_CANARY_EVIDENCE_SIGNER_ISSUER",
+        "AGENT_PLATFORM_FOUNDATION_ATTESTATION_SIGNER_IDENTITY",
+        "AGENT_PLATFORM_FOUNDATION_ATTESTATION_SIGNER_ISSUER",
+        "AGENT_PLATFORM_FOUNDATION_ATTESTATION_URI",
+        "AGENT_PLATFORM_GRAFANA_API_URL",
+        "AGENT_PLATFORM_GRAFANA_DEPLOYMENT",
+        "AGENT_PLATFORM_GRAFANA_NAMESPACE",
+        "AGENT_PLATFORM_NAMESPACE",
+        "AGENT_PLATFORM_OBSERVABILITY_NAMESPACE",
+        "AGENT_PLATFORM_OPERATIONAL_READINESS_BASE_URL",
+        "AGENT_PLATFORM_OPERATIONAL_READINESS_SIGNER_IDENTITY",
+        "AGENT_PLATFORM_OPERATIONAL_READINESS_SIGNER_ISSUER",
+        "AGENT_PLATFORM_OTEL_SERVICE",
+        "AGENT_PLATFORM_PRODUCTION_URL",
+        "AGENT_PLATFORM_RELEASE_APPROVALS_SIGNER_IDENTITY",
+        "AGENT_PLATFORM_RELEASE_APPROVALS_SIGNER_ISSUER",
+        "AGENT_PLATFORM_RELEASE_APPROVALS_URI"
+      ],
+      "required_secrets": [
+        "AGENT_PLATFORM_ALERT_DELIVERY_RECEIPT_TOKEN",
+        "AGENT_PLATFORM_ALERTMANAGER_API_TOKEN",
+        "AGENT_PLATFORM_EVIDENCE_PUBLISH_TOKEN",
+        "AGENT_PLATFORM_FOUNDATION_ATTESTATION_BEARER_TOKEN",
+        "AGENT_PLATFORM_GRAFANA_API_TOKEN",
+        "AGENT_PLATFORM_OPERATIONAL_READINESS_BEARER_TOKEN",
+        "AGENT_PLATFORM_PRODUCTION_HELM_VALUES_B64",
+        "AGENT_PLATFORM_PRODUCTION_KUBECONFIG_B64",
+        "AGENT_PLATFORM_PRODUCTION_RELEASE_TOKEN",
+        "AGENT_PLATFORM_RELEASE_APPROVALS_BEARER_TOKEN"
+      ]
+    }
+  }
+}

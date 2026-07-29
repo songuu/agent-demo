@@ -1,0 +1,190 @@
+global:
+  environment: prod
+  imageRepository: registry.example/agent-platform
+  imageDigest: sha256:replace-with-release-digest
+  gitSha: replace-with-release-git-sha
+  toolCatalogId: enterprise-tools-2026-07-24
+  toolCatalogDigest: sha256:18d3841c680bbaeffc8f36f8c8af7e156efef7527ab6f2b88ffb2d5a31eddba3
+  costRateCatalogId: platform-cost-rates-2026-07
+  costRateCatalogDigest: sha256:816145e4dcf71c0ecda735d8abe84798c547d4a53d8d15a25125ff87a3c7dea8
+  imagePullPolicy: IfNotPresent
+  podSecurityStandard: restricted
+
+api:
+  replicas: 3
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPU: 65
+    targetRequestsPerSecond: "20"
+    scaleUpStabilizationSeconds: 0
+    scaleDownStabilizationSeconds: 300
+
+worker:
+  replicas: 5
+  taskQueue: agent-runs
+  maxConcurrentActivities: 20
+  autoscaling:
+    enabled: true
+    minReplicas: 5
+    maxReplicas: 50
+    targetCPU: 65
+    targetBacklogPerPod: "10"
+    targetOldestAgeSeconds: "60"
+    scaleUpStabilizationSeconds: 0
+    scaleDownStabilizationSeconds: 600
+
+commitWorker:
+  replicas: 2
+  maxConcurrentActivities: 4
+  taskQueue: agent-commits
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 20
+    targetCPU: 65
+    targetBacklogPerPod: "4"
+    targetOldestAgeSeconds: "60"
+    scaleUpStabilizationSeconds: 0
+    scaleDownStabilizationSeconds: 600
+
+outboxWorker:
+  replicas: 2
+  webhookEgressProxyUrl: http://delivery-egress-proxy.platform.svc:8443
+
+retentionWorker:
+  schedule: "17 3 * * *"
+  startingDeadlineSeconds: 1800
+
+networkPolicy:
+  strict: true
+  defaultEgress: deny
+
+egress:
+  noProxy: "127.0.0.1,localhost,.svc,.cluster.local"
+  controlProxyUrl: http://control-egress-proxy.platform.svc:8443
+  agentProxyUrl: http://agent-egress-proxy.platform.svc:8443
+  commitProxyUrl: http://commit-egress-proxy.platform.svc:8443
+  retentionProxyUrl: http://retention-egress-proxy.platform.svc:8443
+
+serviceAccounts:
+  api:
+    annotations: {}
+  agentWorker:
+    annotations: {}
+  commitWorker:
+    annotations: {}
+  outboxWorker:
+    annotations: {}
+  retentionWorker:
+    annotations: {}
+  migration:
+    annotations: {}
+  evalWorker:
+    annotations: {}
+  sandbox:
+    annotations: {}
+
+sandbox:
+  enabled: false
+  runtimeClassName: gvisor
+  activeDeadlineSeconds: 300
+
+policy:
+  failClosed: true
+  bundleRefreshSeconds: 30
+
+quota:
+  backend: redis
+  preAuthIpRequestsPerMinute: 120
+  userRequestsPerMinute: 120
+  tenantRequestsPerMinute: 1200
+  useCaseRequestsPerMinute: 300
+  ipRequestsPerMinute: 120
+
+capacity:
+  tenantMaxActiveRuns: 100
+  queueBacklogSoftLimit: 500
+  queueOldestAgeSoftLimitSeconds: 60
+  criticalQueueMultiplier: 2
+  reservationGraceSeconds: 300
+  tenantDailyBudgetUsd: "1000.000000"
+  tenantMonthlyBudgetUsd: "20000.000000"
+
+toolGateway:
+  url: https://tool-gateway.platform.svc:8443
+  healthUrl: https://tool-gateway.platform.svc:8443/health
+  timeoutSeconds: 15
+  maxInFlight: 20
+  maxQueued: 100
+  queueTimeoutSeconds: 5
+  circuitFailureThreshold: 5
+  circuitRecoverySeconds: 30
+
+modelReliability:
+  maxInFlight: 20
+  maxQueued: 100
+  queueTimeoutSeconds: 5
+  circuitFailureThreshold: 5
+  circuitRecoverySeconds: 30
+
+artifacts:
+  versioning: true
+  defaultRetentionDays: 90
+  presignEnabled: true
+  presignTtlSeconds: 300
+  maxUploadBytes: 209715200
+  maxInMemoryBytes: 8388608
+  retentionPublicDays: 90
+  retentionInternalDays: 90
+  retentionConfidentialDays: 90
+  retentionRestrictedDays: 90
+  retentionSecretDays: 90
+  malwareScanMode: external
+  malwareScanUrl: https://malware-scanner.security.example.com/v1/scan
+  malwareHealthUrl: https://malware-scanner.security.example.com/health
+  malwareEgressProxyUrl: http://artifact-scan-egress-proxy.platform.svc:8443
+  malwareScanTimeoutSeconds: 10
+  malwareMaxResultAgeSeconds: 300
+
+observability:
+  otlpEndpoint: http://otel-collector.observability:4317
+  traceContentCapture: false
+
+config:
+  temporalAddress: temporal-frontend.temporal:7233
+  temporalNamespace: agent-platform-prod
+  temporalTls: true
+  databaseHost: postgres-proxy.data
+  databasePort: 5432
+  artifactBucket: agent-platform-prod
+  artifactStagingBucket: agent-platform-prod-staging
+  opaUrl: http://opa:8181
+  artifactRegion: us-east-1
+  jwtIssuer: https://identity.example.com/
+  jwtAudience: agent-platform
+  jwtJwksUrl: https://identity.example.com/.well-known/jwks.json
+  openAIBaseUrl: https://model-gateway.platform.svc/v1
+  secretsManagerPrefix: agent-platform
+  promptRegistryPath: /app/prompts
+  modelPricingCatalogConfigMapName: agent-platform-model-pricing-replace-with-version
+  modelPricingCatalogKey: catalog.json
+  evalFaultHarnessUrl: ""
+  trustedProxyCidrs: []
+
+secrets:
+  openAISecretName: openai-prod
+  openAIProjectKey: project-id
+  databaseSecretName: agent-platform-database
+  agentCredentialSecretName: agent-read-prepare-reference
+  businessSystemSecretName: business-system-credentials
+  cryptoSecretName: agent-platform-crypto
+  artifactKmsKeyIdKey: artifact-kms-key-id
+  artifactRestrictedKmsKeyIdKey: artifact-restricted-kms-key-id
+  artifactSecretKmsKeyIdKey: artifact-secret-kms-key-id
+  quotaSecretName: agent-platform-quota
+  quotaRedisUrlKey: redis-url
+  quotaKeyHmacSecretKey: key-hmac-secret
+  evalFaultHarnessSecretName: ""
+  evalFaultHarnessTokenKey: ""

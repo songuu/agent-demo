@@ -1,0 +1,343 @@
+# Local development only. This file intentionally uses local-only credentials,
+# single-node dependencies, and the "local" profile. Never promote this manifest.
+name: agent-platform-local
+
+services:
+  postgres:
+    image: postgres:16.9-alpine@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
+    profiles: ["local"]
+    environment:
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent-local-only
+      POSTGRES_DB: agent_platform
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+
+  # Plain Redis is intentional here: this manifest is an isolated dev profile only.
+  redis:
+    image: redis:7.4.9@sha256:33d7c9a245edd95e6703a0addbeaa48fe40c3b3b4783627a72085155462ebfdb
+    profiles: ["local"]
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports: ["127.0.0.1:6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes: ["redisdata:/data"]
+
+  temporal:
+    image: temporalio/auto-setup:1.27.2@sha256:b44cbfeb43dbeae42db113b44fb8414c3452f05643b3d6b1592f955277d73526
+    profiles: ["local"]
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: agent
+      POSTGRES_PWD: agent-local-only
+      POSTGRES_SEEDS: postgres
+    ports: ["7233:7233"]
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
+    profiles: ["local"]
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio-local-only
+    ports: ["9000:9000", "9001:9001"]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes: ["miniodata:/data"]
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3
+    profiles: ["local"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mc alias set local http://minio:9000 minio minio-local-only
+        mc mb --ignore-existing --with-lock local/agent-platform-local
+        mc version enable local/agent-platform-local
+        mc mb --ignore-existing local/agent-platform-local-staging
+        mc ilm rule add --expire-days 1 local/agent-platform-local-staging || true
+    restart: "no"
+
+  opa:
+    image: openpolicyagent/opa:1.5.1-static@sha256:72c5186ef74bc7a88faf88204109476be41cdc392ff1de722f7d8ecb08f18c4d
+    profiles: ["local"]
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
+    ports: ["8181:8181"]
+    volumes: ["../../policies:/policies:ro"]
+
+  migration:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    profiles: ["local"]
+    entrypoint: ["alembic", "upgrade", "head"]
+    environment:
+      AGENT_DATABASE_URL: postgresql+asyncpg://agent:agent-local-only@postgres/agent_platform
+    healthcheck: {disable: true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  webhook-secret-init:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    profiles: ["local"]
+    user: "0:0"
+    read_only: true
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        chown 10001:10001 /secrets
+        chmod 0700 /secrets
+    volumes:
+      - webhooksecrets:/secrets
+    healthcheck: {disable: true}
+    restart: "no"
+
+  agent-api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    profiles: ["local"]
+    environment:
+      AGENT_ENVIRONMENT: dev
+      AGENT_PROCESS_ROLE: api
+      AGENT_AUTH_DISABLED: "true"
+      AGENT_PERSISTENCE_BACKEND: postgres
+      AGENT_WORKFLOW_BACKEND: temporal
+      AGENT_ARTIFACT_BACKEND: s3
+      AGENT_POLICY_BACKEND: opa
+      AGENT_QUOTA_BACKEND: redis
+      AGENT_QUOTA_REDIS_URL: redis://redis:6379/0
+      # Base64 for a 32-byte local-only key; never reuse outside this dev profile.
+      AGENT_QUOTA_KEY_HMAC_SECRET: bG9jYWwtZGV2LXF1b3RhLWhtYWMta2V5LTMyYnl0ZXM=
+      AGENT_PRE_AUTH_IP_REQUESTS_PER_MINUTE: "120"
+      AGENT_USER_REQUESTS_PER_MINUTE: "120"
+      AGENT_TENANT_REQUESTS_PER_MINUTE: "1200"
+      AGENT_USE_CASE_REQUESTS_PER_MINUTE: "300"
+      AGENT_IP_REQUESTS_PER_MINUTE: "120"
+      AGENT_DATABASE_DSN: postgresql+asyncpg://agent:agent-local-only@postgres/agent_platform
+      AGENT_MANAGEMENT_DATABASE_DSN: postgresql+asyncpg://agent:agent-local-only@postgres/agent_platform
+      AGENT_TEMPORAL_ADDRESS: temporal:7233
+      AGENT_TEMPORAL_NAMESPACE: default
+      AGENT_ARTIFACT_BUCKET: agent-platform-local
+      AGENT_ARTIFACT_STAGING_BUCKET: agent-platform-local-staging
+      AGENT_ARTIFACT_ENDPOINT_URL: http://minio:9000
+      AGENT_ARTIFACT_PRESIGN_ENABLED: "false"
+      AGENT_ARTIFACT_MAX_UPLOAD_BYTES: "209715200"
+      AGENT_ARTIFACT_MAX_IN_MEMORY_BYTES: "8388608"
+      AGENT_OPA_URL: http://opa:8181
+      AGENT_SECRET_BACKEND: directory
+      AGENT_WEBHOOK_SECRET_DIR: /var/lib/agent-platform/webhook-secrets
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio-local-only
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+    ports: ["8080:8080"]
+    volumes:
+      - webhooksecrets:/var/lib/agent-platform/webhook-secrets
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      webhook-secret-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      opa:
+        condition: service_started
+
+  agent-worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    profiles: ["local"]
+    entrypoint: ["agent-platform-agent-worker"]
+    environment:
+      AGENT_ENVIRONMENT: dev
+      AGENT_PROCESS_ROLE: agent-worker
+      AGENT_AUTH_DISABLED: "true"
+      AGENT_PERSISTENCE_BACKEND: postgres
+      AGENT_WORKFLOW_BACKEND: temporal
+      AGENT_ARTIFACT_BACKEND: s3
+      AGENT_POLICY_BACKEND: opa
+      AGENT_DATABASE_DSN: postgresql+asyncpg://agent:agent-local-only@postgres/agent_platform
+      AGENT_TEMPORAL_ADDRESS: temporal:7233
+      AGENT_TEMPORAL_NAMESPACE: default
+      AGENT_TEMPORAL_TASK_QUEUE: agent-runs
+      AGENT_ARTIFACT_BUCKET: agent-platform-local
+      AGENT_ARTIFACT_STAGING_BUCKET: agent-platform-local-staging
+      AGENT_ARTIFACT_ENDPOINT_URL: http://minio:9000
+      AGENT_OPA_URL: http://opa:8181
+      AGENT_OPENAI_API_KEY: ""
+      AGENT_AGENT_CREDENTIAL_REF: local-agent-read-prepare-ref
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio-local-only
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=2)",
+        ]
+      interval: 20s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      temporal:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      opa:
+        condition: service_started
+
+  commit-worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    profiles: ["local"]
+    entrypoint: ["agent-platform-commit-worker"]
+    environment:
+      AGENT_ENVIRONMENT: dev
+      AGENT_PROCESS_ROLE: commit-worker
+      AGENT_AUTH_DISABLED: "true"
+      AGENT_PERSISTENCE_BACKEND: postgres
+      AGENT_WORKFLOW_BACKEND: temporal
+      AGENT_ARTIFACT_BACKEND: s3
+      AGENT_POLICY_BACKEND: opa
+      AGENT_DATABASE_DSN: postgresql+asyncpg://agent:agent-local-only@postgres/agent_platform
+      AGENT_TEMPORAL_ADDRESS: temporal:7233
+      AGENT_TEMPORAL_NAMESPACE: default
+      AGENT_TEMPORAL_COMMIT_TASK_QUEUE: agent-commits
+      AGENT_ARTIFACT_BUCKET: agent-platform-local
+      AGENT_ARTIFACT_STAGING_BUCKET: agent-platform-local-staging
+      AGENT_ARTIFACT_ENDPOINT_URL: http://minio:9000
+      AGENT_OPA_URL: http://opa:8181
+      AGENT_BUSINESS_CREDENTIAL_REF: local-business-commit-ref
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio-local-only
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=2)",
+        ]
+      interval: 20s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      temporal:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      opa:
+        condition: service_started
+
+  outbox-worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    profiles: ["local"]
+    entrypoint: ["agent-platform-outbox"]
+    environment:
+      AGENT_ENVIRONMENT: dev
+      AGENT_PROCESS_ROLE: outbox-worker
+      AGENT_PERSISTENCE_BACKEND: postgres
+      AGENT_DATABASE_DSN: postgresql+asyncpg://agent:agent-local-only@postgres/agent_platform
+      AGENT_SECRET_BACKEND: directory
+      AGENT_WEBHOOK_SECRET_DIR: /var/lib/agent-platform/webhook-secrets
+    volumes:
+      - webhooksecrets:/var/lib/agent-platform/webhook-secrets
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; socket.create_connection(('postgres', 5432), 2).close()",
+        ]
+      interval: 20s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      webhook-secret-init:
+        condition: service_completed_successfully
+
+  retention-worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    profiles: ["local"]
+    entrypoint: ["agent-platform-retention"]
+    environment:
+      AGENT_ENVIRONMENT: dev
+      AGENT_PROCESS_ROLE: retention-worker
+      AGENT_PERSISTENCE_BACKEND: postgres
+      AGENT_ARTIFACT_BACKEND: s3
+      AGENT_DATABASE_DSN: postgresql+asyncpg://agent:agent-local-only@postgres/agent_platform
+      AGENT_ARTIFACT_BUCKET: agent-platform-local
+      AGENT_ARTIFACT_STAGING_BUCKET: agent-platform-local-staging
+      AGENT_ARTIFACT_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio-local-only
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+    healthcheck: {disable: true}
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    restart: "no"
+
+volumes:
+  pgdata: {}
+  redisdata: {}
+  miniodata: {}
+  webhooksecrets: {}

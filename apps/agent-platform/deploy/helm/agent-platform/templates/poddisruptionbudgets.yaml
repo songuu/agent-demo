@@ -1,0 +1,35 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agent-api
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: {app: agent-api}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agent-worker
+spec:
+  minAvailable: 3
+  selector:
+    matchLabels: {app: agent-worker}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: commit-worker
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: commit-worker}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: outbox-worker
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: outbox-worker}

@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels: {app: agent-api}
+  template:
+    metadata:
+      labels: {app: agent-api, plane: control}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: agent-api
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: api
+          image: "{{ .Values.global.imageRepository }}@{{ .Values.global.imageDigest }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["agent-platform-api"]
+          ports:
+            - {name: http, containerPort: 8080}
+          envFrom:
+            - configMapRef: {name: agent-platform-config}
+          env:
+            - name: AGENT_PROCESS_ROLE
+              value: "api"
+            - name: HTTPS_PROXY
+              value: {{ .Values.egress.controlProxyUrl | quote }}
+            - name: AGENT_ACTION_PAYLOAD_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.cryptoSecretName }}, key: action-payload-encryption-key}
+            - name: AGENT_MEMORY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.cryptoSecretName }}, key: memory-encryption-key}
+            - name: AGENT_ARTIFACT_KMS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.cryptoSecretName }}
+                  key: {{ .Values.secrets.artifactKmsKeyIdKey }}
+            - name: AGENT_ARTIFACT_RESTRICTED_KMS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.cryptoSecretName }}
+                  key: {{ .Values.secrets.artifactRestrictedKmsKeyIdKey }}
+            - name: AGENT_ARTIFACT_SECRET_KMS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.cryptoSecretName }}
+                  key: {{ .Values.secrets.artifactSecretKmsKeyIdKey }}
+            - name: AGENT_DATABASE_DSN
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.databaseSecretName }}, key: api-dsn}
+            - name: AGENT_MANAGEMENT_DATABASE_DSN
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secrets.databaseSecretName }}, key: management-dsn}
+            - name: AGENT_QUOTA_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.quotaSecretName }}
+                  key: {{ .Values.secrets.quotaRedisUrlKey }}
+            - name: AGENT_QUOTA_KEY_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.quotaSecretName }}
+                  key: {{ .Values.secrets.quotaKeyHmacSecretKey }}
+{{ if eq .Values.global.environment "staging" }}
+            - name: AGENT_EVAL_FAULT_HARNESS_URL
+              value: {{ required "config.evalFaultHarnessUrl is required in staging" .Values.config.evalFaultHarnessUrl | quote }}
+            - name: AGENT_EVAL_FAULT_HARNESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "secrets.evalFaultHarnessSecretName is required in staging" .Values.secrets.evalFaultHarnessSecretName }}
+                  key: {{ required "secrets.evalFaultHarnessTokenKey is required in staging" .Values.secrets.evalFaultHarnessTokenKey }}
+                  optional: false
+{{ end }}
+          resources:
+            requests: {cpu: "250m", memory: "512Mi"}
+            limits: {cpu: "1", memory: "2Gi"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 20
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - name: tool-catalog
+              mountPath: /etc/agent-platform/tool-catalog
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 512Mi}
+        - name: tool-catalog
+          configMap:
+            name: {{ include "agent-platform.toolCatalogConfigMapName" . }}

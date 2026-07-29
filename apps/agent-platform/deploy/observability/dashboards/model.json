@@ -1,0 +1,85 @@
+{
+  "uid": "agent-platform-model",
+  "title": "Agent Platform - Model",
+  "schemaVersion": 39,
+  "tags": [
+    "agent-platform",
+    "model"
+  ],
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Model request outcomes",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (model, role, status) (rate(agent_model_requests_total[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Model P95 latency",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, model, role) (rate(agent_model_latency_seconds_bucket[5m])))"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Token rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:model_tokens:rate5m"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Cost by model and use case",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:cost_usd:rate1h"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Provider cache hit ratio",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "agent:model_cache_hit:ratio5m"
+        },
+        {
+          "expr": "sum by (model, role, status) (rate(agent_model_cache_total[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Model upgrade rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (role, from_model, to_model, reason) (rate(agent_model_upgrades_total[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Model format and provider errors",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "agent:model_request:error_ratio"
+        }
+      ]
+    }
+  ]
+}
