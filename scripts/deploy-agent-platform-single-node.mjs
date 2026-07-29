@@ -474,8 +474,8 @@ if ! grep -Fq -- "$nginx_begin_marker" "$nginx_config"; then
       target_server = 0;
     }
     in_server && $1 == "server_name" {
-      for (index = 2; index <= NF; index++) {
-        candidate = $index;
+      for (field_index = 2; field_index <= NF; field_index++) {
+        candidate = $field_index;
         sub(/;$/, "", candidate);
         if (candidate == domain) {
           target_server = 1;
@@ -556,8 +556,8 @@ awk -v begin_marker="$nginx_begin_marker" -v domain="$domain" '
     target_server = 0;
   }
   in_server && $1 == "server_name" {
-    for (index = 2; index <= NF; index++) {
-      candidate = $index;
+    for (field_index = 2; field_index <= NF; field_index++) {
+      candidate = $field_index;
       sub(/;$/, "", candidate);
       if (candidate == domain) {
         target_server = 1;

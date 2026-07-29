@@ -21,6 +21,51 @@ if NODE is None:
 GIT = shutil.which("git")
 if GIT is None:
     raise RuntimeError("git is required for deployment asset tests")
+AWK = shutil.which("awk")
+WSL = shutil.which("wsl")
+
+
+def _render_remote_deploy_script() -> str:
+    node_program = r"""
+const fs = require("node:fs");
+const source = fs.readFileSync("scripts/deploy-agent-platform-single-node.mjs", "utf8");
+const functions = source.slice(
+  source.indexOf("function buildRemotePreflight"),
+  source.indexOf("async function streamImageToHost"),
+);
+const quote = source.slice(source.indexOf("function quoteBash"));
+const render = new Function(
+  "args",
+  `${functions}\n${quote}\nreturn buildRemoteDeploy(args);`,
+);
+process.stdout.write(render({
+  basePath: "/agent-demo/agent-platform",
+  domain: "songuu.top",
+  gitSha: "0".repeat(40),
+  image: "agent-platform:single-node-test",
+  imageDigest: `sha256:${"1".repeat(64)}`,
+  localUrl: "http://127.0.0.1:5181",
+  port: 5181,
+  publicUrl: "https://songuu.top/agent-demo/agent-platform/",
+  releasePath: `/opt/agent-demo/agent-platform/releases/git-${"0".repeat(40)}`,
+  releaseRoot: "/opt/agent-demo/agent-platform",
+}));
+"""
+    result = subprocess.run(  # noqa: S603 - fixed Node executable and in-memory renderer
+        [NODE, "-e", node_program],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def _extract_rendered_awk(rendered: str, prefix: str, suffix: str) -> str:
+    start = rendered.index(prefix) + len(prefix)
+    end = rendered.index(suffix, start)
+    return rendered[start:end]
 
 
 def test_single_node_deploy_script_is_dry_run_by_default() -> None:
@@ -108,6 +153,150 @@ def test_single_node_deploy_script_keeps_security_and_capacity_gates() -> None:
     assert "--expect-structural-only-readiness-block" in source
     assert "single-node-deployed-with-known-readiness-block" in source
     assert "pm2" not in source.lower()
+
+
+def test_rendered_nginx_awk_executes_and_binds_the_exact_domain(
+    tmp_path: Path,
+) -> None:
+    if AWK is None and WSL is None:
+        pytest.skip("awk or WSL is required for rendered Nginx AWK execution")
+
+    rendered = _render_remote_deploy_script()
+    insertion_program = _extract_rendered_awk(
+        rendered,
+        'awk -v block_file="$expected_nginx_block" -v domain="$domain" \'\n',
+        '\n  \' "$nginx_config" > "$tmp"',
+    )
+    validator_program = _extract_rendered_awk(
+        rendered,
+        'awk -v begin_marker="$nginx_begin_marker" -v domain="$domain" \'\n',
+        '\n\' "$nginx_config" || {',
+    )
+    nginx_config = tmp_path / "nginx.conf"
+    managed_block = tmp_path / "managed.conf"
+    managed_block.write_text(
+        "    # BEGIN managed Agent Platform single-node /agent-demo/agent-platform\n"
+        "    location ^~ /agent-demo/agent-platform/ {\n"
+        "        return 404;\n"
+        "    }\n"
+        "    # END managed Agent Platform single-node /agent-demo/agent-platform\n",
+        encoding="utf-8",
+        newline="",
+    )
+    nginx_config.write_text(
+        "server {\n"
+        "    server_name other.test;\n"
+        "    location = / {\n"
+        "        return 200;\n"
+        "    }\n"
+        "}\n"
+        "server {\n"
+        "    server_name songuu.top;\n"
+        "    location = / {\n"
+        "        return 200;\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+        newline="",
+    )
+
+    if AWK is not None:
+        awk_command = [AWK]
+        managed_block_arg = str(managed_block)
+        nginx_config_arg = str(nginx_config)
+    else:
+        assert WSL is not None
+
+        def wsl_path(path: Path) -> str:
+            result = subprocess.run(  # noqa: S603 - fixed WSL executable and wslpath
+                [WSL, "-e", "wslpath", "-a", str(path)],
+                check=False,
+                capture_output=True,
+            )
+            stderr = result.stderr.decode("utf-8", errors="replace")
+            assert result.returncode == 0, stderr
+            return result.stdout.decode("utf-8").strip()
+
+        awk_command = [WSL, "-e", "awk"]
+        managed_block_arg = wsl_path(managed_block)
+        nginx_config_arg = wsl_path(nginx_config)
+
+    insert_result = subprocess.run(  # noqa: S603 - fixed local awk/WSL executable
+        [
+            *awk_command,
+            "-v",
+            f"block_file={managed_block_arg}",
+            "-v",
+            "domain=songuu.top",
+            insertion_program,
+            nginx_config_arg,
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert insert_result.returncode == 0, (
+        f"{insert_result.stderr}\nAWK program:\n{insertion_program}\n"
+        f"AWK stdout:\n{insert_result.stdout}"
+    )
+    other_server, target_server = insert_result.stdout.split("server_name songuu.top;", 1)
+    assert "BEGIN managed Agent Platform" not in other_server
+    assert "BEGIN managed Agent Platform" in target_server
+    nginx_config.write_text(insert_result.stdout, encoding="utf-8", newline="")
+
+    begin_marker = "# BEGIN managed Agent Platform single-node /agent-demo/agent-platform"
+    validator_result = subprocess.run(  # noqa: S603 - fixed local awk/WSL executable
+        [
+            *awk_command,
+            "-v",
+            f"begin_marker={begin_marker}",
+            "-v",
+            "domain=songuu.top",
+            validator_program,
+            nginx_config_arg,
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert validator_result.returncode == 0, validator_result.stderr
+
+    wrong_server_config = (
+        insert_result.stdout.replace(
+            "server_name other.test;",
+            "server_name replacement.test;",
+            1,
+        )
+        .replace(
+            "server_name songuu.top;",
+            "server_name other.test;",
+            1,
+        )
+        .replace(
+            "server_name replacement.test;",
+            "server_name songuu.top;",
+            1,
+        )
+    )
+    nginx_config.write_text(wrong_server_config, encoding="utf-8", newline="")
+    wrong_server_result = subprocess.run(  # noqa: S603 - fixed local awk/WSL executable
+        [
+            *awk_command,
+            "-v",
+            f"begin_marker={begin_marker}",
+            "-v",
+            "domain=songuu.top",
+            validator_program,
+            nginx_config_arg,
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert wrong_server_result.returncode != 0
 
 
 def test_agent_platform_is_registered_at_the_deployed_base_path() -> None:
