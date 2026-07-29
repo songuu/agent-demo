@@ -233,6 +233,19 @@ def test_short_lived_deployment_files_are_deleted_with_exact_always_cleanup() ->
     ) > production_names.index("Roll back production after post-deployment failure")
 
 
+def test_kubeconfig_paths_are_exported_from_runner_temp_at_step_scope() -> None:
+    jobs = _workflow()["jobs"]
+
+    for job_name in ("staging", "production"):
+        job = jobs[job_name]
+        assert "KUBECONFIG" not in job["env"]
+
+        configure_step = _steps(job)["Configure short-lived kubeconfig path"]
+        expected_path = f"${{RUNNER_TEMP}}/agent-platform-{job_name}-kubeconfig"
+        assert expected_path in configure_step["run"]
+        assert '>> "${GITHUB_ENV}"' in configure_step["run"]
+
+
 def test_canary_job_does_not_keep_unused_image_repository() -> None:
     canary = _workflow()["jobs"]["production_canary"]
 

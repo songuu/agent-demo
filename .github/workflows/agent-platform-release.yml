@@ -707,7 +707,6 @@ jobs:
       IMAGE_REPOSITORY: ${{ needs.build_image.outputs.image_repository }}
       TOOL_CATALOG_ID: ${{ needs.build_image.outputs.tool_catalog_id }}
       TOOL_CATALOG_DIGEST: ${{ needs.build_image.outputs.tool_catalog_digest }}
-      KUBECONFIG: ${{ runner.temp }}/agent-platform-staging-kubeconfig
       LIVE_BASELINE_URI: ${{ vars.AGENT_PLATFORM_STAGING_LIVE_BASELINE_URI }}
       LIVE_BASELINE_SIGNER_IDENTITY: ${{ vars.AGENT_PLATFORM_STAGING_LIVE_BASELINE_SIGNER_IDENTITY }}
       LIVE_BASELINE_SIGNER_ISSUER: ${{ vars.AGENT_PLATFORM_STAGING_LIVE_BASELINE_SIGNER_ISSUER }}
@@ -729,6 +728,9 @@ jobs:
     steps:
       - name: Check out immutable release source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Configure short-lived kubeconfig path
+        run: printf 'KUBECONFIG=%s\n' "${RUNNER_TEMP}/agent-platform-staging-kubeconfig" >> "${GITHUB_ENV}"
 
       - name: Download offline eval evidence
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
@@ -1146,7 +1148,6 @@ jobs:
       IMAGE_REPOSITORY: ${{ needs.build_image.outputs.image_repository }}
       TOOL_CATALOG_ID: ${{ needs.build_image.outputs.tool_catalog_id }}
       TOOL_CATALOG_DIGEST: ${{ needs.build_image.outputs.tool_catalog_digest }}
-      KUBECONFIG: ${{ runner.temp }}/agent-platform-production-kubeconfig
       PLATFORM_BASE_URL: ${{ vars.AGENT_PLATFORM_PRODUCTION_URL }}
       PLATFORM_NAMESPACE: ${{ vars.AGENT_PLATFORM_NAMESPACE }}
       OBSERVABILITY_NAMESPACE: ${{ vars.AGENT_PLATFORM_OBSERVABILITY_NAMESPACE }}
@@ -1159,6 +1160,9 @@ jobs:
     steps:
       - name: Check out immutable release source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Configure short-lived kubeconfig path
+        run: printf 'KUBECONFIG=%s\n' "${RUNNER_TEMP}/agent-platform-production-kubeconfig" >> "${GITHUB_ENV}"
 
       - name: Download supply-chain evidence
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
