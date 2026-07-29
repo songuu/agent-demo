@@ -124,6 +124,9 @@ def test_single_node_deploy_script_keeps_security_and_capacity_gates() -> None:
     assert "docker load" in source
     assert "minimumFreeDiskBytes" in source
     assert "minimumAvailableRuntimeBytes" in source
+    assert "health_attempt_limit=360" in source
+    assert 'seq 1 "$health_attempt_limit"' in source
+    assert '[ "$attempt" = "$health_attempt_limit" ]' in source
     assert "AGENT_PLATFORM_SINGLE_NODE_POSTGRES_PASSWORD" in source
     assert "AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_PASSWORD" in source
     assert 'location ^~ " base_path "/ {' in source

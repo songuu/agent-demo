@@ -331,11 +331,14 @@ compose up -d --no-build \\
   postgres redis temporal minio minio-init opa migration webhook-secret-init \\
   agent-api agent-worker commit-worker outbox-worker retention-worker
 
-for attempt in $(seq 1 120); do
+# This constrained shared host can require more than nine minutes for the
+# application containers to complete their first startup after an image load.
+health_attempt_limit=360
+for attempt in $(seq 1 "$health_attempt_limit"); do
   if curl -fsS "$local_url/health" >/dev/null; then
     break
   fi
-  if [ "$attempt" = "120" ]; then
+  if [ "$attempt" = "$health_attempt_limit" ]; then
     compose ps
     compose logs --tail 100 agent-api agent-worker commit-worker outbox-worker
     echo "single-node health failed: $local_url/health" >&2
