@@ -179,6 +179,12 @@ def test_single_node_profile_binds_release_identity_and_declares_degraded_scanne
     api = services["agent-api"]
     assert api["environment"]["AGENT_ARTIFACT_MALWARE_SCAN_MODE"] == "structural_only"
     assert api["healthcheck"]["timeout"] == "15s"
+    for worker_name in ("agent-worker", "commit-worker"):
+        worker_healthcheck = services[worker_name]["healthcheck"]
+        assert "/ready" in " ".join(worker_healthcheck["test"])
+        assert worker_healthcheck["timeout"] == "15s"
+        assert worker_healthcheck["start_period"] == "1m0s"
+        assert worker_healthcheck["retries"] == 5
     for service_name in (
         "agent-api",
         "agent-worker",

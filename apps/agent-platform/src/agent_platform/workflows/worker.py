@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping, Sequence
+import os
+import sys
+import traceback
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from datetime import timedelta
 from typing import Any, Protocol
 
@@ -191,9 +194,17 @@ async def _run_with_health(
         metrics_port=settings.worker_metrics_port,
     )
     await health.start()
-    health.ready = True
+    run_task = asyncio.create_task(worker.run())
     try:
-        await worker.run()
+        # Worker.is_running changes only after the SDK's namespace validation.
+        # Keep readiness false until that validation has actually completed.
+        while not worker.is_running:
+            done, _ = await asyncio.wait({run_task}, timeout=0.1)
+            if done:
+                await run_task
+                raise RuntimeError("TEMPORAL_WORKER_STOPPED_BEFORE_START")
+        health.ready = True
+        await run_task
     finally:
         health.ready = False
         await health.aclose()
@@ -255,11 +266,25 @@ async def _commit_main() -> None:
 
 
 def agent_main() -> None:
-    asyncio.run(_agent_main())
+    _run_worker_entrypoint(_agent_main)
 
 
 def commit_main() -> None:
-    asyncio.run(_commit_main())
+    _run_worker_entrypoint(_commit_main)
+
+
+def _run_worker_entrypoint(
+    main: Callable[[], Coroutine[Any, Any, None]],
+) -> None:
+    try:
+        asyncio.run(main())
+    except Exception:
+        traceback.print_exc()
+        sys.stderr.flush()
+        # Temporal's native bridge can keep executor threads alive after
+        # validation errors. Resources are already closed by the async runner;
+        # exit immediately so the container restart policy can recover.
+        os._exit(1)
 
 
 if __name__ == "__main__":

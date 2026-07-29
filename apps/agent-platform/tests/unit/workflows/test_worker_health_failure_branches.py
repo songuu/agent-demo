@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Coroutine
 from types import SimpleNamespace
 from typing import Any, cast
@@ -373,6 +374,8 @@ async def test_run_with_health_always_closes_health_and_resources(
             events.append(f"health.close:{self.ready}")
 
     class _Worker:
+        is_running = False
+
         async def run(self) -> None:
             events.append("worker.run")
             raise RuntimeError("worker failed")
@@ -404,6 +407,68 @@ async def test_run_with_health_always_closes_health_and_resources(
         "health.close:False",
         "resources.close",
     ]
+
+
+@pytest.mark.asyncio
+async def test_run_with_health_waits_for_temporal_worker_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    allow_validation = asyncio.Event()
+    worker_started = asyncio.Event()
+    worker_shutdown = asyncio.Event()
+    health_instances: list[Any] = []
+
+    class _Health:
+        def __init__(self, **_kwargs: object) -> None:
+            self.ready = False
+            health_instances.append(self)
+
+        async def start(self) -> None:
+            return None
+
+        async def aclose(self) -> None:
+            self.ready = False
+
+    class _Worker:
+        is_running = False
+
+        async def run(self) -> None:
+            await allow_validation.wait()
+            self.is_running = True
+            worker_started.set()
+            await worker_shutdown.wait()
+
+    class _Resources:
+        dependencies = object()
+        metrics_registry = CollectorRegistry()
+
+        async def healthcheck(self) -> dict[str, str]:
+            return {"temporal": "ok"}
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(worker_module, "WorkerHealthServer", _Health)
+    settings = SimpleNamespace(worker_health_port=8088, worker_metrics_port=9471)
+    task = asyncio.create_task(
+        worker_module._run_with_health(
+            cast(Any, settings),
+            cast(Any, _Worker()),
+            cast(Any, _Resources()),
+        )
+    )
+    await asyncio.sleep(0)
+
+    assert health_instances[0].ready is False
+
+    allow_validation.set()
+    await worker_started.wait()
+    await asyncio.sleep(0.11)
+    assert health_instances[0].ready is True
+
+    worker_shutdown.set()
+    await task
+    assert health_instances[0].ready is False
 
 
 @pytest.mark.asyncio
@@ -512,3 +577,45 @@ def test_sync_worker_entrypoints_delegate_to_asyncio(
     cast(Any, getattr(worker_module, entrypoint))()
 
     assert observed == ["asyncio"]
+
+
+@pytest.mark.parametrize(
+    ("entrypoint", "async_entrypoint"),
+    [("agent_main", "_agent_main"), ("commit_main", "_commit_main")],
+)
+def test_sync_worker_entrypoints_exit_immediately_after_unhandled_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    entrypoint: str,
+    async_entrypoint: str,
+) -> None:
+    observed: list[str] = []
+
+    async def run_worker() -> None:
+        observed.append("worker")
+
+    def run(coroutine: Coroutine[Any, Any, None]) -> None:
+        coroutine.close()
+        observed.append("asyncio")
+        raise RuntimeError("temporal validation failed")
+
+    monkeypatch.setattr(worker_module, async_entrypoint, run_worker)
+    monkeypatch.setattr(worker_module.asyncio, "run", run)
+    monkeypatch.setattr(
+        worker_module.traceback,
+        "print_exc",
+        lambda: observed.append("traceback"),
+    )
+    monkeypatch.setattr(
+        worker_module.sys,
+        "stderr",
+        SimpleNamespace(flush=lambda: observed.append("flush")),
+    )
+    monkeypatch.setattr(
+        worker_module.os,
+        "_exit",
+        lambda code: observed.append(f"exit:{code}"),
+    )
+
+    cast(Any, getattr(worker_module, entrypoint))()
+
+    assert observed == ["asyncio", "traceback", "flush", "exit:1"]

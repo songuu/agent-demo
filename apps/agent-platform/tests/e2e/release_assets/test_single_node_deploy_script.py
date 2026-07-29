@@ -158,6 +158,52 @@ def test_single_node_deploy_script_keeps_security_and_capacity_gates() -> None:
     assert "pm2" not in source.lower()
 
 
+def test_single_node_deploy_serializes_heavy_services_and_keeps_ssh_alive() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    rendered = _render_remote_deploy_script()
+
+    assert '"ServerAliveInterval=30"' in source
+    assert '"ServerAliveCountMax=20"' in source
+    assert source.count("sshKeepaliveArgs") >= 4
+    assert "single-node service wait service=$service" in rendered
+    assert "single-node API wait attempt=$attempt/$health_attempt_limit" in rendered
+    assert "startup_deadline_epoch" in rendered
+    assert "startup_deadline_reached" in rendered
+    assert 'if job_failed "$service"; then' in rendered
+    assert "single-node job exited non-zero" in rendered
+
+    stop_existing = rendered.index(
+        "compose stop agent-api agent-worker commit-worker outbox-worker retention-worker"
+    )
+    start_infrastructure = rendered.index(
+        "compose up -d --no-build \\\n"
+        "  postgres redis temporal minio minio-init opa migration webhook-secret-init"
+    )
+    start_api = rendered.index("compose up -d --no-build --no-deps agent-api")
+    wait_api = rendered.index('wait_for_healthy_service "agent-api"')
+    start_agent = rendered.index("compose up -d --no-build --no-deps agent-worker")
+    wait_agent = rendered.index('wait_for_healthy_service "agent-worker"')
+    start_commit = rendered.index("compose up -d --no-build --no-deps commit-worker")
+    wait_commit = rendered.index('wait_for_healthy_service "commit-worker"')
+    start_outbox = rendered.index("compose up -d --no-build --no-deps outbox-worker")
+    wait_outbox = rendered.index('wait_for_healthy_service "outbox-worker"')
+    start_retention = rendered.index("compose up -d --no-build --no-deps retention-worker")
+
+    assert (
+        stop_existing
+        < start_infrastructure
+        < start_api
+        < wait_api
+        < start_agent
+        < wait_agent
+        < start_commit
+        < wait_commit
+        < start_outbox
+        < wait_outbox
+        < start_retention
+    )
+
+
 def test_rendered_nginx_awk_executes_and_binds_the_exact_domain(
     tmp_path: Path,
 ) -> None:

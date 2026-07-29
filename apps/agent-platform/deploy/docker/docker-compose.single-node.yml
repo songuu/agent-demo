@@ -164,6 +164,18 @@ services:
       AGENT_TEMPORAL_WORKER_VERSIONING_ENABLED: "false"
       AWS_ACCESS_KEY_ID: ${AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_USER:?AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_USER is required}
       AWS_SECRET_ACCESS_KEY: ${AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_PASSWORD:?AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_PASSWORD is required}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/ready', timeout=12)",
+        ]
+      interval: 30s
+      timeout: 15s
+      start_period: 60s
+      retries: 5
     labels: *single-node-labels
     cpus: 0.20
     mem_limit: 192m
@@ -182,6 +194,18 @@ services:
       AGENT_TEMPORAL_WORKER_VERSIONING_ENABLED: "false"
       AWS_ACCESS_KEY_ID: ${AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_USER:?AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_USER is required}
       AWS_SECRET_ACCESS_KEY: ${AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_PASSWORD:?AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_PASSWORD is required}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/ready', timeout=12)",
+        ]
+      interval: 30s
+      timeout: 15s
+      start_period: 60s
+      retries: 5
     labels: *single-node-labels
     cpus: 0.15
     mem_limit: 160m

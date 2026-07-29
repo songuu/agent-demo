@@ -46,6 +46,12 @@ const localUrl = `http://127.0.0.1:${port}`;
 const image = options.image ?? `agent-platform:single-node-${releaseId}`;
 assertImageReference(image);
 const releasePath = `${releaseRoot}/releases/${releaseId}`;
+const sshKeepaliveArgs = [
+  "-o",
+  "ServerAliveInterval=30",
+  "-o",
+  "ServerAliveCountMax=20",
+];
 
 const displayGitSha = gitSha;
 const plan = [
@@ -100,7 +106,11 @@ const remotePreflight = buildRemotePreflight({
   releaseRoot,
   repositoryUrl,
 });
-runCommand("ssh", [deployHost, `bash -lc ${quoteBash(remotePreflight)}`]);
+runCommand("ssh", [
+  ...sshKeepaliveArgs,
+  deployHost,
+  `bash -lc ${quoteBash(remotePreflight)}`,
+]);
 
 await streamImageToHost(image, deployHost);
 
@@ -116,7 +126,11 @@ const remoteDeploy = buildRemoteDeploy({
   releasePath,
   releaseRoot,
 });
-runCommand("ssh", [deployHost, `bash -lc ${quoteBash(remoteDeploy)}`]);
+runCommand("ssh", [
+  ...sshKeepaliveArgs,
+  deployHost,
+  `bash -lc ${quoteBash(remoteDeploy)}`,
+]);
 
 function buildRemotePreflight({
   branch,
@@ -324,31 +338,6 @@ compose() {
     "$@"
 }
 
-compose config >/dev/null
-compose pull postgres redis temporal minio minio-init opa
-require_free_disk post_dependency_pull 1000000000
-compose up -d --no-build \\
-  postgres redis temporal minio minio-init opa migration webhook-secret-init \\
-  agent-api agent-worker commit-worker outbox-worker retention-worker
-
-# This constrained shared host can require more than nine minutes for the
-# application containers to complete their first startup after an image load.
-health_attempt_limit=360
-for attempt in $(seq 1 "$health_attempt_limit"); do
-  if curl -fsS "$local_url/health" >/dev/null; then
-    break
-  fi
-  if [ "$attempt" = "$health_attempt_limit" ]; then
-    compose ps
-    compose logs --tail 100 agent-api agent-worker commit-worker outbox-worker
-    echo "single-node health failed: $local_url/health" >&2
-    exit 74
-  fi
-  sleep 2
-done
-
-require_free_disk post_start 750000000
-
 container_id_for() {
   service="$1"
   compose ps --all -q "$service"
@@ -373,6 +362,144 @@ job_completed_successfully() {
   [ "$(docker inspect --format '{{.State.Status}}' "$container_id")" = "exited" ] || return 1
   [ "$(docker inspect --format '{{.State.ExitCode}}' "$container_id")" = "0" ]
 }
+job_failed() {
+  service="$1"
+  container_id="$(container_id_for "$service")"
+  [ -n "$container_id" ] || return 1
+  [ "$(docker inspect --format '{{.State.Status}}' "$container_id")" = "exited" ] || return 1
+  [ "$(docker inspect --format '{{.State.ExitCode}}' "$container_id")" != "0" ]
+}
+startup_deadline_reached() {
+  [ "$(date +%s)" -ge "$startup_deadline_epoch" ]
+}
+wait_for_healthy_service() {
+  service="$1"
+  attempt_limit="$2"
+  for attempt in $(seq 1 "$attempt_limit"); do
+    if service_is_healthy "$service"; then
+      echo "single-node service ready service=$service attempt=$attempt/$attempt_limit"
+      return 0
+    fi
+    if [ $((attempt % 15)) -eq 0 ]; then
+      echo "single-node service wait service=$service attempt=$attempt/$attempt_limit"
+    fi
+    if startup_deadline_reached; then
+      echo "single-node startup deadline reached service=$service" >&2
+      break
+    fi
+    sleep 2
+  done
+  compose ps --all "$service"
+  compose logs --tail 100 "$service"
+  echo "single-node service failed health gate: $service" >&2
+  exit 82
+}
+wait_for_running_service() {
+  service="$1"
+  attempt_limit="$2"
+  for attempt in $(seq 1 "$attempt_limit"); do
+    if service_is_running "$service"; then
+      echo "single-node service running service=$service attempt=$attempt/$attempt_limit"
+      return 0
+    fi
+    if [ $((attempt % 15)) -eq 0 ]; then
+      echo "single-node running wait service=$service attempt=$attempt/$attempt_limit"
+    fi
+    if startup_deadline_reached; then
+      echo "single-node startup deadline reached service=$service" >&2
+      break
+    fi
+    sleep 2
+  done
+  compose ps --all "$service"
+  compose logs --tail 100 "$service"
+  echo "single-node service failed running gate: $service" >&2
+  exit 82
+}
+wait_for_successful_job() {
+  service="$1"
+  attempt_limit="$2"
+  for attempt in $(seq 1 "$attempt_limit"); do
+    if job_completed_successfully "$service"; then
+      echo "single-node job complete service=$service attempt=$attempt/$attempt_limit"
+      return 0
+    fi
+    if job_failed "$service"; then
+      compose ps --all "$service"
+      compose logs --tail 100 "$service"
+      echo "single-node job exited non-zero: $service" >&2
+      exit 82
+    fi
+    if [ $((attempt % 15)) -eq 0 ]; then
+      echo "single-node job wait service=$service attempt=$attempt/$attempt_limit"
+    fi
+    if startup_deadline_reached; then
+      echo "single-node startup deadline reached service=$service" >&2
+      break
+    fi
+    sleep 2
+  done
+  compose ps --all "$service"
+  compose logs --tail 100 "$service"
+  echo "single-node job failed completion gate: $service" >&2
+  exit 82
+}
+
+compose config >/dev/null
+compose pull postgres redis temporal minio minio-init opa
+require_free_disk post_dependency_pull 1000000000
+startup_timeout_seconds=720
+startup_deadline_epoch=$(( $(date +%s) + startup_timeout_seconds ))
+compose stop agent-api agent-worker commit-worker outbox-worker retention-worker
+compose rm -f agent-api agent-worker commit-worker outbox-worker retention-worker
+compose up -d --no-build \\
+  postgres redis temporal minio minio-init opa migration webhook-secret-init
+
+# Avoid concurrent Python imports on the constrained host: they can saturate
+# swap I/O and make Temporal worker validation fail even when Temporal is healthy.
+health_attempt_limit=360
+for service in postgres redis temporal minio; do
+  wait_for_healthy_service "$service" "$health_attempt_limit"
+done
+wait_for_running_service "opa" "$health_attempt_limit"
+for service in minio-init migration webhook-secret-init; do
+  wait_for_successful_job "$service" "$health_attempt_limit"
+done
+
+compose up -d --no-build --no-deps agent-api
+wait_for_healthy_service "agent-api" "$health_attempt_limit"
+for attempt in $(seq 1 "$health_attempt_limit"); do
+  if curl -fsS "$local_url/health" >/dev/null; then
+    break
+  fi
+  if [ $((attempt % 15)) -eq 0 ]; then
+    echo "single-node API wait attempt=$attempt/$health_attempt_limit"
+  fi
+  if startup_deadline_reached; then
+    compose ps --all agent-api
+    compose logs --tail 100 agent-api
+    echo "single-node startup deadline reached while waiting for API" >&2
+    exit 74
+  fi
+  if [ "$attempt" = "$health_attempt_limit" ]; then
+    compose ps
+    compose logs --tail 100 agent-api
+    echo "single-node health failed: $local_url/health" >&2
+    exit 74
+  fi
+  sleep 2
+done
+
+compose up -d --no-build --no-deps agent-worker
+wait_for_healthy_service "agent-worker" "$health_attempt_limit"
+compose up -d --no-build --no-deps commit-worker
+wait_for_healthy_service "commit-worker" "$health_attempt_limit"
+compose up -d --no-build --no-deps outbox-worker
+wait_for_healthy_service "outbox-worker" "$health_attempt_limit"
+compose up -d --no-build --no-deps retention-worker
+wait_for_running_service "retention-worker" "$health_attempt_limit"
+
+require_free_disk post_start 750000000
 all_required_services_ready() {
   for service in postgres redis temporal minio agent-api agent-worker commit-worker outbox-worker; do
     service_is_healthy "$service" || return 1
@@ -388,6 +515,15 @@ all_required_services_ready() {
 for attempt in $(seq 1 60); do
   if all_required_services_ready; then
     break
+  fi
+  if [ $((attempt % 15)) -eq 0 ]; then
+    echo "single-node aggregate wait attempt=$attempt/60"
+  fi
+  if startup_deadline_reached; then
+    compose ps --all
+    compose logs --tail 100 agent-api agent-worker commit-worker outbox-worker retention-worker
+    echo "single-node startup deadline reached during aggregate gate" >&2
+    exit 82
   fi
   if [ "$attempt" = "60" ]; then
     compose ps --all
@@ -654,9 +790,13 @@ async function streamImageToHost(image, deployHost) {
     stdio: ["ignore", "pipe", "inherit"],
   });
   const gzip = createGzip({ level: 1 });
-  const load = spawn("ssh", [deployHost, "gzip -dc | docker load"], {
-    stdio: ["pipe", "inherit", "inherit"],
-  });
+  const load = spawn(
+    "ssh",
+    [...sshKeepaliveArgs, deployHost, "gzip -dc | docker load"],
+    {
+      stdio: ["pipe", "inherit", "inherit"],
+    },
+  );
 
   const transfer = pipeline(save.stdout, gzip, load.stdin);
   const [saveStatus, loadStatus] = await Promise.all([
