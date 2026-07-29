@@ -747,6 +747,58 @@ cleanup_nginx_validation
 trap - EXIT
 nginx -s reload
 
+public_health=""
+public_identity_ready=0
+public_identity_last_error=""
+public_identity_attempt=0
+public_identity_deadline_epoch=$(( $(date +%s) + 30 ))
+while true; do
+  public_identity_remaining_seconds=$(( public_identity_deadline_epoch - $(date +%s) ))
+  if [ "$public_identity_remaining_seconds" -le 0 ]; then
+    break
+  fi
+  public_identity_request_timeout="$public_identity_remaining_seconds"
+  if [ "$public_identity_request_timeout" -gt 5 ]; then
+    public_identity_request_timeout=5
+  fi
+  public_identity_connect_timeout="$public_identity_request_timeout"
+  if [ "$public_identity_connect_timeout" -gt 2 ]; then
+    public_identity_connect_timeout=2
+  fi
+  public_identity_attempt=$((public_identity_attempt + 1))
+  if public_identity_response="$(curl -fsS \
+    --connect-timeout "$public_identity_connect_timeout" \
+    --max-time "$public_identity_request_timeout" \
+    "$public_url"health 2>&1)"; then
+    public_health="$public_identity_response"
+    public_identity_last_error=""
+    if grep -Fq '"release_git_sha":"'"$expected_git_sha"'"' <<<"$public_health" &&
+      grep -Fq '"release_image_digest":"'"$expected_image_digest"'"' <<<"$public_health"; then
+      public_identity_ready=1
+      break
+    fi
+  else
+    public_health=""
+    public_identity_last_error="$public_identity_response"
+  fi
+  public_identity_remaining_seconds=$(( public_identity_deadline_epoch - $(date +%s) ))
+  if [ "$public_identity_remaining_seconds" -le 0 ]; then
+    break
+  fi
+  if [ $((public_identity_attempt % 5)) -eq 0 ]; then
+    echo "public Agent Platform release identity wait attempt=$public_identity_attempt remaining_seconds=$public_identity_remaining_seconds"
+  fi
+  sleep 1
+done
+if [ "$public_identity_ready" != "1" ]; then
+  echo "public Agent Platform release identity did not converge: expected git=$expected_git_sha digest=$expected_image_digest" >&2
+  if [ -n "$public_identity_last_error" ]; then
+    printf 'last public health curl error: %s\n' "$public_identity_last_error" >&2
+  else
+    printf 'last public health response: %s\n' "$public_health" >&2
+  fi
+  exit 81
+fi
 public_denied_code="$(curl --silent --show-error --output /dev/null \
   --write-out '%{http_code}' \
   --header 'X-Agent-Roles: admin' \
@@ -755,9 +807,6 @@ if [ "$public_denied_code" != "404" ]; then
   echo "expected public Agent Platform API denial HTTP 404, got $public_denied_code" >&2
   exit 81
 fi
-public_health="$(curl -fsS "$public_url"health)"
-printf '%s' "$public_health" | grep -Fq "\"release_git_sha\":\"$expected_git_sha\""
-printf '%s' "$public_health" | grep -Fq "\"release_image_digest\":\"$expected_image_digest\""
 curl -fsS "$public_url" >/dev/null
 public_ready_body="$(mktemp)"
 public_ready_code="$(curl -sS -o "$public_ready_body" -w '%{http_code}' "$public_url"ready)"
@@ -766,7 +815,11 @@ if [ "$public_ready_code" != "503" ]; then
   echo "expected constrained public readiness HTTP 503, got $public_ready_code" >&2
   exit 77
 fi
-grep -Fq '"artifact_malware_scanner":"error:policy-fail-closed:structural-only"' "$public_ready_body"
+if ! grep -Fq '"artifact_malware_scanner":"error:policy-fail-closed:structural-only"' "$public_ready_body"; then
+  cat "$public_ready_body" >&2
+  echo "public readiness omitted the expected structural-only malware scanner block" >&2
+  exit 77
+fi
 rm -f "$public_ready_body"
 
 if ! all_required_services_ready; then

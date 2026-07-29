@@ -216,6 +216,24 @@ def test_single_node_deploy_runs_smoke_with_the_pinned_container_python() -> Non
     assert '< "$release/apps/agent-platform/scripts/smoke_single_node_deployment.py"' in rendered
 
 
+def test_rendered_public_identity_gate_waits_for_nginx_and_preserves_json_quotes() -> None:
+    rendered = _render_remote_deploy_script()
+
+    assert "public_identity_ready=0" in rendered
+    assert "public_identity_deadline_epoch=$(( $(date +%s) + 30 ))" in rendered
+    assert '--connect-timeout "$public_identity_connect_timeout"' in rendered
+    assert '--max-time "$public_identity_request_timeout"' in rendered
+    assert 'public_identity_last_error="$public_identity_response"' in rendered
+    assert "last public health curl error" in rendered
+    assert """grep -Fq '"release_git_sha":"'"$expected_git_sha"'"'""" in rendered
+    assert """grep -Fq '"release_image_digest":"'"$expected_image_digest"'"'""" in rendered
+    assert rendered.count('<<<"$public_health"') == 2
+    assert 'grep -Fq ""release_git_sha"' not in rendered
+    assert rendered.index("nginx -s reload") < rendered.index("public_identity_ready=0")
+    assert rendered.index("public_identity_ready=0") < rendered.index('public_denied_code="$(curl')
+    assert "public Agent Platform release identity did not converge" in rendered
+
+
 def test_rendered_nginx_awk_executes_and_binds_the_exact_domain(
     tmp_path: Path,
 ) -> None:
