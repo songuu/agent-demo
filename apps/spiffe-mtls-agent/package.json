@@ -7,7 +7,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
-    "test": "tsx --test test/spiffe-id.test.ts test/peer-policy.test.ts test/web-demo.test.ts",
+    "test": "tsx --test test/spiffe-id.test.ts test/peer-policy.test.ts test/web-demo.test.ts test/deploy-production.test.ts",
     "start:server": "tsx spiffe-mtls-agent.ts server",
     "start:client": "tsx spiffe-mtls-agent.ts client",
     "demo:web": "tsx src/web/demo-server.ts",

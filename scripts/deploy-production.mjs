@@ -50,7 +50,7 @@ if [ ! -d "$release/.git" ]; then
 fi
 cd "$release"
 pnpm install --frozen-lockfile
-pnpm build
+pnpm --filter @agent-demo/spiffe-mtls-agent build
 BASE_PATH="$base_path" PORT="$port" node -e "const demo=require('./apps/spiffe-mtls-agent/dist/src/web/demo-model.js'); const s=demo.getDemoSnapshot('127.0.0.1', Number(process.env.PORT), process.env.BASE_PATH); if (s.basePath !== process.env.BASE_PATH || s.steps.length !== 8) process.exit(1); console.log('snapshot-ok=' + s.steps.length);"
 ln -sfn "$release" "$current"
 
