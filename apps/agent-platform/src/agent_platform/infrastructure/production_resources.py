@@ -130,6 +130,7 @@ async def build_production_shared_resources(
         staging_bucket=settings.artifact_staging_bucket,
         kms_key_id=settings.artifact_kms_key,
         environment=settings.environment,
+        allow_unencrypted_local=settings.artifact_allow_unencrypted_local,
     )
     store = PostgresPlatformStore(
         factory,

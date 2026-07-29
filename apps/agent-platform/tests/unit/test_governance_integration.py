@@ -220,10 +220,15 @@ async def test_capability_change_and_kill_switch_reach_live_gateway() -> None:
 class FakeS3Client:
     def __init__(self, key: str) -> None:
         self.key = key
+        self.headed: list[str] = []
         self.deleted: list[str] = []
 
     def list_objects_v2(self, **kwargs: object) -> dict[str, object]:
         return {"Contents": [{"Key": self.key}]}
+
+    def head_object(self, **kwargs: object) -> dict[str, object]:
+        self.headed.append(str(kwargs["Key"]))
+        return {}
 
     def delete_object(self, **kwargs: object) -> None:
         self.deleted.append(str(kwargs["Key"]))
@@ -243,4 +248,5 @@ async def test_s3_delete_uses_the_discovered_bound_object_key() -> None:
 
     await store.delete(artifact_id, "tenant-a")
 
+    assert client.headed == [actual_key]
     assert client.deleted == [actual_key]

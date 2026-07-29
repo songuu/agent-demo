@@ -55,9 +55,7 @@ class WorkerHealthServer:
     async def aclose(self) -> None:
         self.ready = False
         servers = [
-            server
-            for server in (self._health_server, self._metrics_server)
-            if server is not None
+            server for server in (self._health_server, self._metrics_server) if server is not None
         ]
         for server in servers:
             server.close()

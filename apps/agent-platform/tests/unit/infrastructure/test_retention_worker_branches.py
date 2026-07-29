@@ -269,6 +269,7 @@ async def test_run_once_builds_governed_adapters_and_always_disposes(
         artifact_kms_key = "arn:aws:kms:ap-southeast-1:111122223333:key/archive"
         artifact_bucket = "agent-platform-prod"
         environment = "prod"
+        artifact_allow_unencrypted_local = False
 
         def __init__(self, *, process_role: str) -> None:
             assert process_role == "retention-worker"
@@ -312,6 +313,7 @@ async def test_run_once_builds_governed_adapters_and_always_disposes(
         "bucket": "agent-platform-prod",
         "environment": "prod",
         "kms_key_id": "arn:aws:kms:ap-southeast-1:111122223333:key/archive",
+        "allow_unencrypted_local": False,
     }
     assert disposed == [sessions]
     assert client.closed == 1

@@ -294,6 +294,7 @@ async def test_worker_runners_forward_queue_version_and_limits(
     settings = SimpleNamespace(
         temporal_task_queue="agent-queue",
         temporal_commit_task_queue="commit-queue",
+        temporal_worker_versioning_enabled=True,
         release_git_sha="abc123",
         max_concurrent_activities=9,
     )
@@ -311,6 +312,47 @@ async def test_worker_runners_forward_queue_version_and_limits(
         }
     ]
     assert health_calls == [(settings, built_worker, resources)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("runner_name", "builder_name"),
+    [
+        ("run_agent_worker", "build_agent_worker"),
+        ("run_commit_worker", "build_commit_worker"),
+    ],
+)
+async def test_worker_runners_can_disable_namespace_worker_versioning(
+    monkeypatch: pytest.MonkeyPatch,
+    runner_name: str,
+    builder_name: str,
+) -> None:
+    builder_calls: list[dict[str, object]] = []
+
+    def build_worker(**kwargs: object) -> object:
+        builder_calls.append(kwargs)
+        return object()
+
+    async def run_with_health(*_args: object) -> None:
+        return None
+
+    monkeypatch.setattr(worker_module, builder_name, build_worker)
+    monkeypatch.setattr(worker_module, "_run_with_health", run_with_health)
+    settings = SimpleNamespace(
+        temporal_task_queue="agent-queue",
+        temporal_commit_task_queue="commit-queue",
+        temporal_worker_versioning_enabled=False,
+        release_git_sha="release-sha",
+        max_concurrent_activities=1,
+    )
+
+    await cast(Any, getattr(worker_module, runner_name))(
+        settings,
+        object(),
+        SimpleNamespace(dependencies=object()),
+    )
+
+    assert builder_calls[0]["build_id"] is None
 
 
 @pytest.mark.asyncio

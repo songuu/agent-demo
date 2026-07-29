@@ -49,9 +49,7 @@ def _normalize(value: Any) -> Any:
         normalized: dict[str, Any] = {}
         for key, item in value.items():
             if not isinstance(key, str):
-                raise TypeError(
-                    "CANONICAL_JSON_STRING_KEY_REQUIRED: object keys must be strings"
-                )
+                raise TypeError("CANONICAL_JSON_STRING_KEY_REQUIRED: object keys must be strings")
             normalized[key] = _normalize(item)
         return normalized
     if isinstance(value, Set) and not isinstance(value, (str, bytes, bytearray)):
@@ -59,9 +57,7 @@ def _normalize(value: Any) -> Any:
         return sorted(items, key=_dump_normalized)
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [_normalize(item) for item in value]
-    raise TypeError(
-        f"CANONICAL_JSON_UNSUPPORTED_TYPE: cannot canonicalize {type(value).__name__}"
-    )
+    raise TypeError(f"CANONICAL_JSON_UNSUPPORTED_TYPE: cannot canonicalize {type(value).__name__}")
 
 
 def _dump_normalized(value: Any) -> str:

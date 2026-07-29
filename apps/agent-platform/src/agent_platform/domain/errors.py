@@ -24,9 +24,7 @@ class DomainInvariantError(ValueError):
     def __str__(self) -> str:
         suffix = ""
         if self.context:
-            rendered = ", ".join(
-                f"{key}={self.context[key]!r}" for key in sorted(self.context)
-            )
+            rendered = ", ".join(f"{key}={self.context[key]!r}" for key in sorted(self.context))
             suffix = f" ({rendered})"
         return f"{self.code}: {self.message}{suffix}"
 

@@ -46,8 +46,7 @@ def _archive(path: Path, *, include_sbom: bool = True) -> None:
             )
         )
     layers = [
-        _descriptor(payload, media_type="application/vnd.in-toto+json")
-        for payload in statements
+        _descriptor(payload, media_type="application/vnd.in-toto+json") for payload in statements
     ]
     manifest = _json_bytes(
         {
@@ -80,8 +79,7 @@ def _archive(path: Path, *, include_sbom: bool = True) -> None:
         "index.json": index,
         f"blobs/sha256/{hashlib.sha256(manifest).hexdigest()}": manifest,
         **{
-            f"blobs/sha256/{hashlib.sha256(payload).hexdigest()}": payload
-            for payload in statements
+            f"blobs/sha256/{hashlib.sha256(payload).hexdigest()}": payload for payload in statements
         },
     }
     with tarfile.open(path, mode="w") as archive:

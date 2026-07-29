@@ -35,8 +35,7 @@ class RetentionPolicyVersion(Base):
             name="ck_retention_policy_online_days",
         ),
         CheckConstraint(
-            "archive_retention_days IS NULL OR "
-            "archive_retention_days >= online_retention_days",
+            "archive_retention_days IS NULL OR archive_retention_days >= online_retention_days",
             name="ck_retention_policy_archive_days",
         ),
         CheckConstraint(

@@ -1362,11 +1362,7 @@ class PostgresArtifactStore:
             ),
             "source_json": (existing.source_json, expected_source),
         }
-        return [
-            field
-            for field, (actual, expected) in comparisons.items()
-            if actual != expected
-        ]
+        return [field for field, (actual, expected) in comparisons.items() if actual != expected]
 
     async def _persist_metadata(
         self,

@@ -94,6 +94,52 @@ async def test_release_evidence_fails_closed_without_restricted_classification()
     assert client.put_requests == []
 
 
+@pytest.mark.asyncio
+async def test_default_non_kms_store_still_requests_sse_s3() -> None:
+    client = _GovernedS3Client()
+    store = S3ArtifactStore(
+        client=client,
+        bucket="artifact-local",
+        kms_key_id=None,
+        environment="dev",
+    )
+
+    await store.put(_release_evidence())
+
+    request = client.put_requests[0]
+    assert request["ServerSideEncryption"] == "AES256"
+    assert "SSEKMSKeyId" not in request
+
+
+@pytest.mark.asyncio
+async def test_dev_minio_can_explicitly_disable_unsupported_server_side_encryption() -> None:
+    client = _GovernedS3Client()
+    store = S3ArtifactStore(
+        client=client,
+        bucket="artifact-local",
+        kms_key_id=None,
+        environment="dev",
+        allow_unencrypted_local=True,
+    )
+
+    await store.put(_release_evidence())
+
+    request = client.put_requests[0]
+    assert "ServerSideEncryption" not in request
+    assert "SSEKMSKeyId" not in request
+
+
+def test_unencrypted_s3_store_is_rejected_outside_local_development() -> None:
+    with pytest.raises(ValueError, match="ARTIFACT_UNENCRYPTED_LOCAL_FORBIDDEN"):
+        S3ArtifactStore(
+            client=_GovernedS3Client(),
+            bucket="artifact-prod",
+            kms_key_id=None,
+            environment="prod",
+            allow_unencrypted_local=True,
+        )
+
+
 class _GovernedS3Client:
     def __init__(self) -> None:
         self.put_requests: list[dict[str, Any]] = []
@@ -155,6 +201,46 @@ async def test_delete_fails_closed_for_object_store_legal_hold() -> None:
     assert client.deletes == []
 
 
+@pytest.mark.asyncio
+async def test_delete_fails_closed_when_governance_readback_is_unavailable() -> None:
+    artifact_id = uuid4()
+    client = _DeleteS3ClientWithoutGovernanceRead(artifact_id=artifact_id)
+    store = S3ArtifactStore(
+        client=client,
+        bucket="artifact-test",
+        kms_key_id=None,
+        environment="test",
+    )
+
+    with pytest.raises(PlatformError) as exc_info:
+        await store.delete(artifact_id, "tenant-a")
+
+    assert exc_info.value.code == "ARTIFACT_DELETE_GOVERNANCE_READ_FAILED"
+    assert exc_info.value.retryable is True
+    assert exc_info.value.http_status == 503
+    assert client.deletes == []
+
+
+@pytest.mark.asyncio
+async def test_delete_fails_closed_when_governance_readback_is_invalid() -> None:
+    artifact_id = uuid4()
+    client = _DeleteS3ClientWithInvalidGovernanceRead(artifact_id=artifact_id)
+    store = S3ArtifactStore(
+        client=client,
+        bucket="artifact-test",
+        kms_key_id=None,
+        environment="test",
+    )
+
+    with pytest.raises(PlatformError) as exc_info:
+        await store.delete(artifact_id, "tenant-a")
+
+    assert exc_info.value.code == "ARTIFACT_DELETE_GOVERNANCE_READ_FAILED"
+    assert exc_info.value.retryable is True
+    assert exc_info.value.http_status == 503
+    assert client.deletes == []
+
+
 class _DeleteS3Client:
     def __init__(self, *, artifact_id: Any, legal_hold: bool) -> None:
         self.key = f"test/tenant/tenant-a/run/unbound/artifacts/{artifact_id}"
@@ -177,3 +263,25 @@ class _DeleteS3Client:
 
     def delete_object(self, **kwargs: Any) -> None:
         self.deletes.append(kwargs)
+
+
+class _DeleteS3ClientWithoutGovernanceRead:
+    def __init__(self, *, artifact_id: Any) -> None:
+        self.key = f"test/tenant/tenant-a/run/unbound/artifacts/{artifact_id}"
+        self.deletes: list[dict[str, Any]] = []
+
+    def list_objects_v2(self, **kwargs: Any) -> dict[str, Any]:
+        del kwargs
+        return {
+            "Contents": [{"Key": self.key}],
+            "IsTruncated": False,
+        }
+
+    def delete_object(self, **kwargs: Any) -> None:
+        self.deletes.append(kwargs)
+
+
+class _DeleteS3ClientWithInvalidGovernanceRead(_DeleteS3ClientWithoutGovernanceRead):
+    def head_object(self, **kwargs: Any) -> list[object]:
+        del kwargs
+        return []

@@ -105,12 +105,10 @@ def s3_probe(
 
         if not expected_kms_key:
             raise RuntimeError("S3_KMS_KEY_REFERENCE_REQUIRED")
-        encryption = _mapping(
-            await asyncio.to_thread(client.get_bucket_encryption, Bucket=bucket)
+        encryption = _mapping(await asyncio.to_thread(client.get_bucket_encryption, Bucket=bucket))
+        encryption_rules = _mapping(encryption.get("ServerSideEncryptionConfiguration")).get(
+            "Rules"
         )
-        encryption_rules = _mapping(
-            encryption.get("ServerSideEncryptionConfiguration")
-        ).get("Rules")
         kms_enabled = False
         if isinstance(encryption_rules, list):
             for raw_rule in encryption_rules:
@@ -147,41 +145,28 @@ def s3_probe(
         if require_staging_controls:
             if not any(
                 isinstance(_mapping(rule.get("Expiration")).get("Days"), int)
-                and 0 < int(_mapping(rule.get("Expiration"))["Days"])
-                <= max_staging_expiration_days
+                and 0 < int(_mapping(rule.get("Expiration"))["Days"]) <= max_staging_expiration_days
                 for rule in enabled_rules
             ):
                 raise RuntimeError("S3_STAGING_SHORT_LIFECYCLE_REQUIRED")
             if not any(
                 isinstance(
-                    _mapping(rule.get("AbortIncompleteMultipartUpload")).get(
-                        "DaysAfterInitiation"
-                    ),
+                    _mapping(rule.get("AbortIncompleteMultipartUpload")).get("DaysAfterInitiation"),
                     int,
                 )
                 and 0
-                < int(
-                    _mapping(rule.get("AbortIncompleteMultipartUpload"))[
-                        "DaysAfterInitiation"
-                    ]
-                )
+                < int(_mapping(rule.get("AbortIncompleteMultipartUpload"))["DaysAfterInitiation"])
                 <= max_staging_expiration_days
                 for rule in enabled_rules
             ):
                 raise RuntimeError("S3_STAGING_ABORT_INCOMPLETE_MULTIPART_REQUIRED")
             if not any(
                 isinstance(
-                    _mapping(rule.get("NoncurrentVersionExpiration")).get(
-                        "NoncurrentDays"
-                    ),
+                    _mapping(rule.get("NoncurrentVersionExpiration")).get("NoncurrentDays"),
                     int,
                 )
                 and 0
-                < int(
-                    _mapping(rule.get("NoncurrentVersionExpiration"))[
-                        "NoncurrentDays"
-                    ]
-                )
+                < int(_mapping(rule.get("NoncurrentVersionExpiration"))["NoncurrentDays"])
                 <= 7
                 for rule in enabled_rules
             ):
@@ -190,18 +175,14 @@ def s3_probe(
         public_access = _mapping(
             await asyncio.to_thread(client.get_public_access_block, Bucket=bucket)
         )
-        public_access_config = _mapping(
-            public_access.get("PublicAccessBlockConfiguration")
-        )
+        public_access_config = _mapping(public_access.get("PublicAccessBlockConfiguration"))
         public_access_controls = (
             "BlockPublicAcls",
             "IgnorePublicAcls",
             "BlockPublicPolicy",
             "RestrictPublicBuckets",
         )
-        if not all(
-            public_access_config.get(key) is True for key in public_access_controls
-        ):
+        if not all(public_access_config.get(key) is True for key in public_access_controls):
             raise RuntimeError("S3_PUBLIC_ACCESS_BLOCK_REQUIRED")
 
         try:

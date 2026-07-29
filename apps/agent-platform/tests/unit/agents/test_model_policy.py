@@ -9,13 +9,9 @@ from agent_platform.domain.enums import RiskLevel
 
 
 def test_model_routes_match_risk_and_role_policy() -> None:
-    policy = ModelPolicy(
-        allowlist=("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
-    )
+    policy = ModelPolicy(allowlist=("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"))
 
-    critical = policy.route(
-        "verifier", RiskLevel.CRITICAL, 0, 0.8, Decimal("5")
-    )
+    critical = policy.route("verifier", RiskLevel.CRITICAL, 0, 0.8, Decimal("5"))
     assert critical.model == "gpt-5.6-sol"
     assert critical.reasoning == {"mode": "pro", "effort": "high"}
     assert critical.parallel_tool_calls is False

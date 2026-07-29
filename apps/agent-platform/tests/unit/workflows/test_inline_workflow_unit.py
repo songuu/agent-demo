@@ -281,16 +281,11 @@ async def test_inline_platform_task_failure_is_audited_and_terminal() -> None:
     final = await workflow.wait_until_terminal(run.run_id, timeout_seconds=5)
 
     assert final.status is RunStatus.FAILED
-    assert (
-        await _failure_reason(store, run.run_id)
-        == "WORKER_DEPENDENCY_REJECTED"
-    )
+    assert await _failure_reason(store, run.run_id) == "WORKER_DEPENDENCY_REJECTED"
     audit = await store.audit.export_run(run.run_id, run.tenant_id)
     failed = [item for item in audit["task_executions"] if item["status"] == "failed"]
     assert failed
-    assert {item["error_code"] for item in failed} == {
-        "WORKER_DEPENDENCY_REJECTED"
-    }
+    assert {item["error_code"] for item in failed} == {"WORKER_DEPENDENCY_REJECTED"}
     assert any(event["event_type"] == "task.failed" for event in audit["events"])
 
 

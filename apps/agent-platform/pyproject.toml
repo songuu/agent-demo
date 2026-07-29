@@ -59,7 +59,7 @@ agent-platform-outbox = "agent_platform.infrastructure.outbox:main"
 packages = ["src/agent_platform"]
 
 [tool.pytest.ini_options]
-addopts = "-ra --strict-config --strict-markers"
+addopts = "-ra --strict-config --strict-markers --import-mode=importlib"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [

@@ -398,9 +398,7 @@ async def test_commit_lookup_suppresses_duplicate_and_requires_read_after_write(
     assert committed.payload["verification_hash"]
     invocation_id = committed.payload["tool_invocation_id"]
     invocation = next(
-        value
-        for value in store.audit._tools.values()
-        if str(value.invocation_id) == invocation_id
+        value for value in store.audit._tools.values() if str(value.invocation_id) == invocation_id
     )
     assert invocation.effect is ToolEffect.COMMIT
     assert invocation.result_hash == committed.payload["receipt_hash"]

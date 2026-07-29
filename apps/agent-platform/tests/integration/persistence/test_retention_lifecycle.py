@@ -96,10 +96,7 @@ async def test_lifecycle_migration_and_worker_archive_purge_with_evidence() -> N
                 )
             )
             rls = await session.scalar(
-                text(
-                    "SELECT relrowsecurity FROM pg_class "
-                    "WHERE relname = 'retention_evidence'"
-                )
+                text("SELECT relrowsecurity FROM pg_class WHERE relname = 'retention_evidence'")
             )
             append_trigger = await session.scalar(
                 text(
@@ -219,6 +216,8 @@ async def test_lifecycle_migration_and_worker_archive_purge_with_evidence() -> N
         assert event_count == 1
     finally:
         await dispose_session_factory(factory)
+
+
 @pytest.mark.asyncio
 async def test_artifact_legal_hold_projects_through_rls_and_release_is_auditable() -> None:
     database_url = os.getenv("AGENT_TEST_DATABASE_URL")
@@ -272,12 +271,8 @@ async def test_artifact_legal_hold_projects_through_rls_and_release_is_auditable
         )
 
         async with factory() as session:
-            held = await session.scalar(
-                select(Artifact).where(Artifact.artifact_id == artifact_id)
-            )
-            applied = await session.scalar(
-                select(LegalHold).where(LegalHold.hold_id == hold_id)
-            )
+            held = await session.scalar(select(Artifact).where(Artifact.artifact_id == artifact_id))
+            applied = await session.scalar(select(LegalHold).where(LegalHold.hold_id == hold_id))
         assert held is not None and held.legal_hold_status == "on"
         assert applied is not None and applied.status == "active"
 

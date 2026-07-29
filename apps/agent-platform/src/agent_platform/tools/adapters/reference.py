@@ -89,9 +89,7 @@ class SandboxEmailAdapter:
     """Medium/high Action sandbox with true idempotency and read-after-write."""
 
     def __init__(self, *, allowed_domains: set[str]) -> None:
-        self._allowed_domains = frozenset(
-            domain.casefold() for domain in allowed_domains
-        )
+        self._allowed_domains = frozenset(domain.casefold() for domain in allowed_domains)
         self._messages: dict[str, dict[str, Any]] = {}
         self.commit_count = 0
 
@@ -180,9 +178,7 @@ class SandboxEmailAdapter:
             "method": "sandbox_read_after_write",
             "details": {
                 "external_operation_id": (
-                    receipt.get("external_operation_id")
-                    if isinstance(receipt, Mapping)
-                    else None
+                    receipt.get("external_operation_id") if isinstance(receipt, Mapping) else None
                 ),
             },
         }

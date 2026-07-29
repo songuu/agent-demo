@@ -26,9 +26,7 @@ def test_local_minio_separates_locked_final_objects_from_short_lived_staging() -
     assert "mc version enable local/agent-platform-local" in compose
     assert "mc mb --ignore-existing local/agent-platform-local-staging" in compose
     assert "mc ilm rule add --expire-days 1 local/agent-platform-local-staging" in compose
-    assert compose.count(
-        "AGENT_ARTIFACT_STAGING_BUCKET: agent-platform-local-staging"
-    ) == 4
+    assert compose.count("AGENT_ARTIFACT_STAGING_BUCKET: agent-platform-local-staging") == 4
 
 
 def test_cloud_foundation_contract_requires_unlocked_isolated_staging_controls() -> None:

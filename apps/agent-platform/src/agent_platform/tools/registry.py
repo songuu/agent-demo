@@ -41,17 +41,12 @@ class ToolRegistry:
         candidates.sort(key=lambda item: item.definition.version, reverse=True)
         return candidates[0]
 
-    async def resolve_exact(
-        self, name: str, version: str, tenant_id: str
-    ) -> RegisteredTool:
+    async def resolve_exact(self, name: str, version: str, tenant_id: str) -> RegisteredTool:
         tool = self._tools.get((name, version))
         if tool is None or not tool.definition.enabled:
             raise PlatformError(
                 "TOOL_NOT_FOUND",
-                (
-                    f"TOOL_NOT_FOUND: tool {name!r} version {version!r} "
-                    "is not registered or enabled"
-                ),
+                (f"TOOL_NOT_FOUND: tool {name!r} version {version!r} is not registered or enabled"),
                 http_status=404,
                 context={
                     "tool_name": name,

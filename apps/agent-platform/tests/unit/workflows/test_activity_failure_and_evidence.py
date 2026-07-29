@@ -60,9 +60,7 @@ async def test_recovery_activity_failure_settles_run_and_reraises(
         reason="rollback failed",
     )
     method = (
-        activities.reconcile_action
-        if operation == "reconcile"
-        else activities.compensate_action
+        activities.reconcile_action if operation == "reconcile" else activities.compensate_action
     )
 
     with pytest.raises(RuntimeError, match="provider unavailable"):
@@ -71,9 +69,10 @@ async def test_recovery_activity_failure_settles_run_and_reraises(
     saved = await store.runs.get(run.run_id, run.tenant_id)
     events = await store.runs.events_after(run.run_id, run.tenant_id, 0)
     assert saved.status is RunStatus.FAILED
-    assert next(event for event in events if event.event_type == "run.failed").payload[
-        "reason_code"
-    ] == f"ACTION_RECOVERY_{operation.upper()}_FAILED"
+    assert (
+        next(event for event in events if event.event_type == "run.failed").payload["reason_code"]
+        == f"ACTION_RECOVERY_{operation.upper()}_FAILED"
+    )
 
 
 @pytest.mark.asyncio
@@ -162,9 +161,12 @@ async def test_budget_warning_fallback_retries_conflicts_and_appends_event() -> 
     assert saved.cost_actual_usd == Decimal("4")
     assert saved.token_input == 100
     assert saved.token_output == 20
-    assert next(event for event in events if event.event_type == "budget.warning").payload[
-        "pricing_catalog_version"
-    ] == "catalog-v1"
+    assert (
+        next(event for event in events if event.event_type == "budget.warning").payload[
+            "pricing_catalog_version"
+        ]
+        == "catalog-v1"
+    )
 
 
 @pytest.mark.asyncio

@@ -129,6 +129,7 @@ def test_staging_accepts_explicit_security_material_and_distributed_backends() -
         **KMS_SETTINGS,
         process_role="api",
         database_dsn=SecretStr("postgresql+asyncpg://agent@postgres/staging"),
+        management_database_dsn=SecretStr("postgresql+asyncpg://agent_management@postgres/staging"),
         temporal_address="temporal-staging:7233",
         temporal_namespace="agent-platform-staging",
         auth_disabled=False,
@@ -275,6 +276,35 @@ def test_unknown_model_alias_is_rejected_at_configuration_boundary() -> None:
             persistence_backend="memory",
             artifact_backend="memory",
             model_allowlist=("gpt-5.6-sol", "user-supplied-model"),
+        )
+
+
+def test_unencrypted_artifact_storage_is_allowed_only_for_local_development() -> None:
+    settings = Settings(
+        environment="dev",
+        artifact_allow_unencrypted_local=True,
+    )
+
+    assert settings.artifact_allow_unencrypted_local is True
+
+    for environment in ("test", "staging", "prod"):
+        with pytest.raises(
+            ValidationError,
+            match="ARTIFACT_UNENCRYPTED_LOCAL_FORBIDDEN",
+        ):
+            Settings(
+                environment=environment,
+                artifact_allow_unencrypted_local=True,
+            )
+
+    with pytest.raises(
+        ValidationError,
+        match="ARTIFACT_ENCRYPTION_CONFIG_CONFLICT",
+    ):
+        Settings(
+            environment="dev",
+            artifact_allow_unencrypted_local=True,
+            artifact_kms_key="kms-local",
         )
 
 

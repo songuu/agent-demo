@@ -54,9 +54,7 @@ class RunStateMachineTests(unittest.TestCase):
             {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED},
         )
         for terminal in RUN_TERMINAL_STATUSES:
-            with self.subTest(terminal=terminal), self.assertRaises(
-                DomainTransitionError
-            ):
+            with self.subTest(terminal=terminal), self.assertRaises(DomainTransitionError):
                 ensure_run_transition(terminal, RunStatus.EXECUTING)
 
 
@@ -94,9 +92,7 @@ class ActionStateMachineTests(unittest.TestCase):
         self.assertIn(ActionStatus.REJECTED, ACTION_TERMINAL_STATUSES)
         self.assertIn(ActionStatus.COMPENSATION_FAILED, ACTION_TERMINAL_STATUSES)
         for terminal in ACTION_TERMINAL_STATUSES:
-            with self.subTest(terminal=terminal), self.assertRaises(
-                DomainTransitionError
-            ):
+            with self.subTest(terminal=terminal), self.assertRaises(DomainTransitionError):
                 ensure_action_transition(terminal, ActionStatus.PREPARED)
 
 

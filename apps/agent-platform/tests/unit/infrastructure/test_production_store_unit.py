@@ -360,6 +360,8 @@ def _artifact_row(record: ArtifactRecord) -> Artifact:
         delete_last_error_code=record.delete_last_error_code,
         created_at=record.created_at,
     )
+
+
 def _invocation(run: RunRecord) -> ToolInvocationRecord:
     return ToolInvocationRecord(
         invocation_id=uuid4(),
@@ -1096,9 +1098,7 @@ async def test_artifact_existing_id_rejects_new_content_before_object_write(
         await store.put(changed)
 
     assert conflict.value.code == "ARTIFACT_IMMUTABLE_CONFLICT"
-    assert {"sha256", "size_bytes"}.issubset(
-        set(conflict.value.context["differing_fields"])
-    )
+    assert {"sha256", "size_bytes"}.issubset(set(conflict.value.context["differing_fields"]))
     assert content_store.put_calls == []
     assert content_store.delete_calls == []
 
@@ -1223,9 +1223,7 @@ async def test_artifact_delete_commits_pending_before_object_then_finalizes(
 
     expiring = _artifact(expires=True)
     expiring.retention_policy = "classification:internal:90d"
-    expiring.encryption_key_ref = (
-        "arn:aws:kms:ap-southeast-1:111122223333:key/general"
-    )
+    expiring.encryption_key_ref = "arn:aws:kms:ap-southeast-1:111122223333:key/general"
     expiring_values = store._metadata_values(expiring)
     assert expiring_values["retention_policy"] == "classification:internal:90d"
     assert expiring_values["encryption_key_ref"].endswith("/general")

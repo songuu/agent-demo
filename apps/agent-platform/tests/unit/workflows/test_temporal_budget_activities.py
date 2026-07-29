@@ -141,9 +141,12 @@ async def test_actual_model_usage_is_saved_and_crossing_80_percent_emits_immutab
     audit = await store.audit.export_run(run.run_id, run.tenant_id)
     assert audit["plans"][0]["planner_model"] == "usage-test-model"
     assert audit["plans"][0]["prompt_id"] == "usage-test-planner"
-    assert next(
-        event for event in audit["events"] if event["event_type"] == "plan.created"
-    )["payload"]["plan_hash"] == audit["plans"][0]["plan_hash"]
+    assert (
+        next(event for event in audit["events"] if event["event_type"] == "plan.created")[
+            "payload"
+        ]["plan_hash"]
+        == audit["plans"][0]["plan_hash"]
+    )
 
 
 class _OverToolBudgetRuntime:

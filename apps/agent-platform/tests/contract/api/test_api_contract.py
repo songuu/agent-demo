@@ -118,9 +118,7 @@ async def test_run_202_idempotency_snapshot_etag_sse_and_tenant_boundary(
     assert events.status_code == 200
     assert "event: run.completed" in events.text
     first_id = next(
-        line.removeprefix("id: ")
-        for line in events.text.splitlines()
-        if line.startswith("id: ")
+        line.removeprefix("id: ") for line in events.text.splitlines() if line.startswith("id: ")
     )
     resumed = await client.get(
         f"/v1/runs/{accepted['run_id']}/events",
@@ -197,9 +195,7 @@ async def test_artifact_lifecycle_capability_kill_switch_and_openapi(
     artifact = uploaded.json()
     metadata = await client.get(f"/v1/artifacts/{artifact['artifact_id']}")
     assert metadata.json()["sha256"] == artifact["sha256"]
-    missing_purpose = await client.get(
-        f"/v1/artifacts/{artifact['artifact_id']}?download=true"
-    )
+    missing_purpose = await client.get(f"/v1/artifacts/{artifact['artifact_id']}?download=true")
     assert missing_purpose.status_code == 400
     assert missing_purpose.json()["error"]["code"] == "ARTIFACT_DOWNLOAD_PURPOSE_REQUIRED"
     downloaded = await client.get(

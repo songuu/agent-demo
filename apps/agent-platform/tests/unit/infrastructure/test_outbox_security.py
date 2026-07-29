@@ -30,9 +30,7 @@ async def test_outbox_dead_letters_sensitive_payload_without_network(
         network_calls += 1
         return httpx.Response(204)
 
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(handler)
-    ) as client:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         worker = _SecurityCaptureWorker(
             session_factory=cast(AsyncSessionFactory, object()),
             secrets=FileSecretResolver(secret_root),

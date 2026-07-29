@@ -100,6 +100,4 @@ async def test_memory_tenant_boundary_and_expiration() -> None:
 
     with pytest.raises(NotFound):
         await vault.get(record.memory_id, "tenant-b")
-    assert await vault.list_visible(
-        "tenant-a", "user-1", now=now + timedelta(minutes=2)
-    ) == ()
+    assert await vault.list_visible("tenant-a", "user-1", now=now + timedelta(minutes=2)) == ()

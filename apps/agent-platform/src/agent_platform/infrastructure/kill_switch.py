@@ -75,9 +75,7 @@ class KillSwitchRegistry:
     ) -> KillSwitchRecord:
         if mode not in {"writes", "all"}:
             raise ValueError("KILL_SWITCH_MODE_INVALID")
-        if not all(
-            value.strip() for value in (scope_id, reason, changed_by, incident_id)
-        ):
+        if not all(value.strip() for value in (scope_id, reason, changed_by, incident_id)):
             raise ValueError("KILL_SWITCH_AUDIT_FIELDS_REQUIRED")
         activated_at = now or datetime.now(UTC)
         if expires_at is not None and expires_at <= activated_at:

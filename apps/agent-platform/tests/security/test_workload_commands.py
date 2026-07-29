@@ -93,9 +93,7 @@ def test_compose_has_isolated_outbox_and_retention_processes() -> None:
     outbox = compose.split("  outbox-worker:", maxsplit=1)[1].split(
         "  retention-worker:", maxsplit=1
     )[0]
-    retention = compose.split("  retention-worker:", maxsplit=1)[1].split(
-        "volumes:", maxsplit=1
-    )[0]
+    retention = compose.split("  retention-worker:", maxsplit=1)[1].split("volumes:", maxsplit=1)[0]
 
     assert 'entrypoint: ["agent-platform-outbox"]' in outbox
     assert "AGENT_PROCESS_ROLE: outbox-worker" in outbox
@@ -119,9 +117,7 @@ def test_compose_initializes_local_secret_volume_without_privileging_runtime() -
     initializer = compose.split("  webhook-secret-init:", maxsplit=1)[1].split(
         "  agent-api:", maxsplit=1
     )[0]
-    api = compose.split("  agent-api:", maxsplit=1)[1].split(
-        "  agent-worker:", maxsplit=1
-    )[0]
+    api = compose.split("  agent-api:", maxsplit=1)[1].split("  agent-worker:", maxsplit=1)[0]
 
     assert 'user: "0:0"' in initializer
     assert "chown 10001:10001 /secrets" in initializer

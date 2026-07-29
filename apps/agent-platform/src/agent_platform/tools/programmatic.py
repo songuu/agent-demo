@@ -106,9 +106,7 @@ class ProgrammaticReadExecutor:
                 "PTC_DUPLICATE_CALL_ID: call IDs must be unique",
             )
 
-        deadline = (
-            asyncio.get_running_loop().time() + self._limits.max_duration_seconds
-        )
+        deadline = asyncio.get_running_loop().time() + self._limits.max_duration_seconds
         resolved: dict[str, ToolDefinition] = {}
         for call in calls:
             try:
@@ -207,9 +205,7 @@ class ProgrammaticReadExecutor:
         try:
             async with asyncio.timeout_at(deadline):
                 for wave in plan.waves:
-                    wave_outputs = await asyncio.gather(
-                        *(execute_call(call) for call in wave)
-                    )
+                    wave_outputs = await asyncio.gather(*(execute_call(call) for call in wave))
                     wave_size = sum(item.size_bytes for item in wave_outputs)
                     if total_bytes + wave_size > self._limits.max_output_bytes:
                         raise PlatformError(

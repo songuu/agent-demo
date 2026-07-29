@@ -231,8 +231,7 @@ async def test_run_audit_export_contains_ordered_correlation_evidence(
     assert audit["task_executions"]
     assert all(item["status"] == "succeeded" for item in audit["task_executions"])
     assert all(
-        item["model_name"] == "deterministic-reference-runtime"
-        for item in audit["task_executions"]
+        item["model_name"] == "deterministic-reference-runtime" for item in audit["task_executions"]
     )
     assert all(item["prompt_id"] == "not-applicable" for item in audit["task_executions"])
     assert audit["tool_invocations"]

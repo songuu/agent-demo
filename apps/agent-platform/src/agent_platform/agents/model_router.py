@@ -45,9 +45,7 @@ class ModelPolicy:
                 False,
             )
         elif role in {"planner", "verifier"}:
-            route = ModelRoute(
-                "gpt-5.6-sol", {"effort": "medium"}, 20_000, False
-            )
+            route = ModelRoute("gpt-5.6-sol", {"effort": "medium"}, 20_000, False)
         elif role == "classifier":
             route = ModelRoute("gpt-5.6-luna", {"effort": "low"}, 4_000, False)
         elif role == "worker" and retry_count == 0 and risk != RiskLevel.CRITICAL:

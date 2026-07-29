@@ -148,9 +148,7 @@ class _Checkpoint:
         output_payload = output.model_dump(mode="json")
         execution.status = "succeeded"
         execution.output_json = output_payload
-        execution.output_artifact_id = (
-            output.artifacts[0] if len(output.artifacts) == 1 else None
-        )
+        execution.output_artifact_id = output.artifacts[0] if len(output.artifacts) == 1 else None
         execution.completed_at = datetime.now(UTC)
         await self._workflow.store.audit.complete_task_with_run(
             run,
@@ -172,6 +170,7 @@ class _Checkpoint:
                 task_id=task_id,
             ),
         )
+
 
 class InlineWorkflowStarter:
     """Local durable-contract runner; production uses Temporal."""
@@ -287,6 +286,7 @@ class InlineWorkflowStarter:
                 context={"role": role},
             )
         return cast(dict[str, Any], metadata)
+
     def _tenant(self, run_id: UUID) -> str:
         task = self._tasks.get(run_id)
         if task is None:

@@ -23,6 +23,28 @@
         "href": "/agent-demo/spiffe/",
         "summary": "查看 Agent 双向认证、SVID、PeerPolicy、审计链路。"
       }
+    },
+    {
+      "id": "agent-platform",
+      "name": "GPT-5.6 Agent Platform",
+      "workspace": "apps/agent-platform",
+      "description": "Governed Agent runtime with durable workflows, policy enforcement, artifacts, evidence, and operational controls.",
+      "category": "agent-platform",
+      "local": {
+        "command": "docker compose --profile local -f apps/agent-platform/deploy/docker/docker-compose.yml up -d",
+        "url": "http://127.0.0.1:8080"
+      },
+      "deploy": {
+        "basePath": "/agent-demo/agent-platform/",
+        "port": 5181,
+        "healthPath": "/health",
+        "startCommand": "pnpm deploy:agent-platform:single-node"
+      },
+      "agentBuildShortcut": {
+        "title": "GPT-5.6 Agent Platform",
+        "href": "/agent-demo/agent-platform/",
+        "summary": "查看受治理 Agent 运行时、工作流、策略、证据与运行状态。"
+      }
     }
   ]
 }

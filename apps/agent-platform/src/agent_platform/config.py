@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     worker_metrics_port: int = Field(default=9464, ge=1, le=65_535)
     max_concurrent_activities: int = Field(default=20, ge=1, le=1_000)
     temporal_tls: bool | None = None
+    temporal_worker_versioning_enabled: bool = True
     openai_api_key: SecretStr = SecretStr("")
     openai_base_url: str | None = None
     openai_project: str | None = None
@@ -85,6 +86,8 @@ class Settings(BaseSettings):
     artifact_kms_key: str | None = None
     artifact_restricted_kms_key: str | None = None
     artifact_secret_kms_key: str | None = None
+    # Local MinIO has no KMS backend. This escape hatch is rejected outside dev.
+    artifact_allow_unencrypted_local: bool = False
     artifact_retention_public_days: int = Field(default=90, ge=1, le=3_650)
     artifact_retention_internal_days: int = Field(default=90, ge=1, le=3_650)
     artifact_retention_confidential_days: int = Field(default=90, ge=1, le=3_650)
@@ -389,6 +392,12 @@ class Settings(BaseSettings):
                 violations.append("ARTIFACT_MALWARE_EGRESS_PROXY_REQUIRED")
         elif self.environment in {"staging", "prod"}:
             violations.append("ARTIFACT_MALWARE_EXTERNAL_SCANNER_REQUIRED")
+        if self.artifact_allow_unencrypted_local and self.environment != "dev":
+            violations.append("ARTIFACT_UNENCRYPTED_LOCAL_FORBIDDEN")
+        if self.artifact_allow_unencrypted_local and any(
+            (self.artifact_kms_key, self.artifact_restricted_kms_key, self.artifact_secret_kms_key)
+        ):
+            violations.append("ARTIFACT_ENCRYPTION_CONFIG_CONFLICT")
 
         if self.environment not in {"staging", "prod"}:
             if violations:

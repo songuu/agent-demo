@@ -29,9 +29,7 @@ class AgentFactory:
         self._prompts = prompts
 
     def planner(self, contract: TaskContract) -> Agent[AgentToolContext]:
-        route = self._models.route(
-            "planner", contract.risk, 0, 0.7, contract.max_cost_usd
-        )
+        route = self._models.route("planner", contract.risk, 0, 0.7, contract.max_cost_usd)
         return Agent(
             name="planner",
             instructions=self._prompts.render(
@@ -86,9 +84,7 @@ class AgentFactory:
         contract: TaskContract,
         deterministic_findings: dict[str, Any],
     ) -> Agent[AgentToolContext]:
-        route = self._models.route(
-            "verifier", contract.risk, 0, 0.8, contract.max_cost_usd
-        )
+        route = self._models.route("verifier", contract.risk, 0, 0.8, contract.max_cost_usd)
         return Agent(
             name="verifier",
             instructions=self._prompts.render(
@@ -145,6 +141,7 @@ class AgentFactory:
             "prompt_id": prompt_id,
             "prompt_version": "1.0.0",
         }
+
     @staticmethod
     def _settings(route: ModelRoute) -> ModelSettings:
         return ModelSettings(

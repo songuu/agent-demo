@@ -54,21 +54,18 @@ class PolicyDecision(StrictDomainModel):
             or self.field_restrictions
             or self.rate_limit is not None
         ):
-            raise ValueError(
-                "POLICY_NON_ALLOWING_GRANT: deny/pause decisions cannot carry grants"
-            )
-        if self.action in {
-            PolicyDecisionAction.ALLOW,
-            PolicyDecisionAction.RESTRICT,
-            PolicyDecisionAction.APPROVAL_REQUIRED,
-        } and self.expires_at is None:
-            raise ValueError(
-                "POLICY_EXPIRY_REQUIRED: an allowing decision must be short-lived"
-            )
+            raise ValueError("POLICY_NON_ALLOWING_GRANT: deny/pause decisions cannot carry grants")
         if (
-            self.action is not PolicyDecisionAction.APPROVAL_REQUIRED
-            and self.required_approvals
+            self.action
+            in {
+                PolicyDecisionAction.ALLOW,
+                PolicyDecisionAction.RESTRICT,
+                PolicyDecisionAction.APPROVAL_REQUIRED,
+            }
+            and self.expires_at is None
         ):
+            raise ValueError("POLICY_EXPIRY_REQUIRED: an allowing decision must be short-lived")
+        if self.action is not PolicyDecisionAction.APPROVAL_REQUIRED and self.required_approvals:
             raise ValueError(
                 "POLICY_APPROVAL_ACTION_MISMATCH: approvals only apply to approval_required"
             )
@@ -112,9 +109,7 @@ class TrajectoryDecision(StrictDomainModel):
                 "TRAJECTORY_RISK_ACTION_MISMATCH: high-risk trajectory cannot continue"
             )
         if self.action is TrajectoryAction.RESTRICT and not self.disabled_capabilities:
-            raise ValueError(
-                "TRAJECTORY_RESTRICTION_REQUIRED: restrict must disable a capability"
-            )
+            raise ValueError("TRAJECTORY_RESTRICTION_REQUIRED: restrict must disable a capability")
         if len(set(self.reason_codes)) != len(self.reason_codes):
             raise ValueError("TRAJECTORY_DUPLICATE_REASON: reason codes must be unique")
         if len(set(self.evidence_event_ids)) != len(self.evidence_event_ids):
@@ -185,11 +180,7 @@ def validate_action_approvals(
                 },
             )
 
-    approved = [
-        record
-        for record in approvals
-        if record.decision is ApprovalDecision.APPROVED
-    ]
+    approved = [record for record in approvals if record.decision is ApprovalDecision.APPROVED]
     actor_ids = [record.actor_id for record in approved]
     if len(actor_ids) != len(set(actor_ids)):
         raise DomainInvariantError(
@@ -207,10 +198,7 @@ def validate_action_approvals(
             },
         )
     for record in approved:
-        if (
-            _AUTH_STRENGTH[record.auth_strength]
-            < _AUTH_STRENGTH[action.minimum_auth_strength]
-        ):
+        if _AUTH_STRENGTH[record.auth_strength] < _AUTH_STRENGTH[action.minimum_auth_strength]:
             raise DomainInvariantError(
                 "APPROVAL_AUTH_STRENGTH_INSUFFICIENT",
                 "approval did not use the required step-up authentication",

@@ -156,9 +156,7 @@ class ArtifactContentSanitizer:
                 else "not_applicable"
             )
             method = (
-                "structural-deny-active-content"
-                if status == "active_content_checked"
-                else "none"
+                "structural-deny-active-content" if status == "active_content_checked" else "none"
             )
             digest = hashlib.sha256()
             copied = 0

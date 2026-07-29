@@ -592,6 +592,7 @@ async def _run_once() -> RetentionSweepReport:
                 bucket=settings.artifact_bucket,
                 environment=settings.environment,
                 kms_key_id=archive_kms_key,
+                allow_unencrypted_local=settings.artifact_allow_unencrypted_local,
             ),
         )
         worker = PostgresRetentionWorker(

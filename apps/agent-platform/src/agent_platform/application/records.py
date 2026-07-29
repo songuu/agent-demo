@@ -273,8 +273,7 @@ class ArtifactRecord:
         if object_version_id is not None and not object_version_id.strip():
             raise ValueError("ARTIFACT_OBJECT_VERSION_ID_INVALID")
         if object_retain_until is not None and (
-            object_retain_until.tzinfo is None
-            or object_retain_until.utcoffset() is None
+            object_retain_until.tzinfo is None or object_retain_until.utcoffset() is None
         ):
             raise ValueError("ARTIFACT_OBJECT_RETAIN_UNTIL_TIMEZONE_REQUIRED")
         if legal_hold_status not in {"none", "on"}:

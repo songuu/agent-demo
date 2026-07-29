@@ -21,9 +21,7 @@ def test_staging_and_production_forbid_persisting_raw_model_content() -> None:
 def test_tool_invocation_persists_only_redacted_args_hash_and_artifact_reference() -> None:
     columns = set(ToolInvocation.__table__.columns.keys())
 
-    assert {"args_hash", "args_redacted", "result_hash", "result_artifact_id"}.issubset(
-        columns
-    )
+    assert {"args_hash", "args_redacted", "result_hash", "result_artifact_id"}.issubset(columns)
     assert {
         "args_json",
         "raw_args",

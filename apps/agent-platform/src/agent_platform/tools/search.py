@@ -43,9 +43,7 @@ class ToolSearchIndex:
 
     def register(self, entry: SearchableTool) -> None:
         if entry.definition.effect is ToolEffect.COMMIT:
-            raise ValueError(
-                "TOOL_SEARCH_COMMIT_FORBIDDEN: Commit tools never enter Agent search"
-            )
+            raise ValueError("TOOL_SEARCH_COMMIT_FORBIDDEN: Commit tools never enter Agent search")
         key = (
             entry.tenant_id,
             entry.definition.name,
@@ -76,10 +74,7 @@ class ToolSearchIndex:
             definition = entry.definition
             if entry.tenant_id not in {context.tenant_id, "*"}:
                 continue
-            if (
-                context.task_id not in entry.allowed_task_ids
-                and "*" not in entry.allowed_task_ids
-            ):
+            if context.task_id not in entry.allowed_task_ids and "*" not in entry.allowed_task_ids:
                 continue
             if definition.capability_name not in context.allowed_capabilities:
                 continue

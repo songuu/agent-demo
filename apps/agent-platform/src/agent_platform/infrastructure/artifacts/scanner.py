@@ -300,9 +300,7 @@ class ArtifactScanner:
                     or normalized_name.casefold() == "[content_types].xml"
                 )
                 with archive.open(info) as entry:
-                    inspection = entry.read(
-                        min(info.file_size, 1_048_577) if inspect_markup else 4
-                    )
+                    inspection = entry.read(min(info.file_size, 1_048_577) if inspect_markup else 4)
                     prefix = inspection[:4]
                     if prefix.startswith(_ZIP_SIGNATURES):
                         raise self._error(

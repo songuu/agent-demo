@@ -95,6 +95,7 @@ async def test_real_minio_archive_is_versioned_locked_and_restorable() -> None:
                 resource_type="agent_run",
                 resource_id="run-integration",
                 policy=policy,
+                retention_anchor=datetime.now(UTC),
             ),
             [{"record_type": "agent_run", "status": "completed"}],
         )

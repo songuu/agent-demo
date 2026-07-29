@@ -79,9 +79,7 @@ def test_webhook_signature_rejects_replay_outside_window() -> None:
 async def test_dispatcher_retries_with_same_delivery_id_then_succeeds() -> None:
     attempts: list[tuple[str, bytes, Mapping[str, str]]] = []
 
-    async def send(
-        url: str, body: bytes, headers: Mapping[str, str]
-    ) -> tuple[int, bytes]:
+    async def send(url: str, body: bytes, headers: Mapping[str, str]) -> tuple[int, bytes]:
         attempts.append((url, body, headers))
         return (503, b"retry") if len(attempts) == 1 else (204, b"")
 
@@ -108,9 +106,7 @@ async def test_dispatcher_retries_with_same_delivery_id_then_succeeds() -> None:
     assert delivery.status == "delivered"
     assert delivery.attempts == 2
     assert len(attempts) == 2
-    assert attempts[0][2]["X-Agent-Delivery-ID"] == attempts[1][2][
-        "X-Agent-Delivery-ID"
-    ]
+    assert attempts[0][2]["X-Agent-Delivery-ID"] == attempts[1][2]["X-Agent-Delivery-ID"]
     assert attempts[0][1] == attempts[1][1]
 
 
@@ -118,9 +114,7 @@ async def test_dispatcher_retries_with_same_delivery_id_then_succeeds() -> None:
 async def test_dispatcher_filters_events_and_dead_letters_failures() -> None:
     calls: list[dict[str, Any]] = []
 
-    async def fail(
-        url: str, body: bytes, headers: Mapping[str, str]
-    ) -> tuple[int, bytes]:
+    async def fail(url: str, body: bytes, headers: Mapping[str, str]) -> tuple[int, bytes]:
         calls.append({"url": url, "body": body, "headers": headers})
         return 500, b"provider failure"
 

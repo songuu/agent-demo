@@ -247,6 +247,8 @@ async def test_s3_routes_stream_upload_and_keep_metadata_reads_content_free() ->
         }
     ]
     await container.aclose()
+
+
 @pytest.mark.asyncio
 async def test_digest_addressed_content_route_is_stable_and_hash_bound() -> None:
     runtime_settings = _settings()

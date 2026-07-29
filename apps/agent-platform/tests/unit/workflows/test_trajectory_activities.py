@@ -91,21 +91,27 @@ async def test_trajectory_replays_across_activity_instances_and_blocks_next_runt
         "tenant_id": run.tenant_id,
         "correlation_id": "corr-activity",
     }
-    assert await _activities(store)._invoke_runtime(
-        payload,
-        run,
-        operation,
-        role="worker",
-        task_id="task-1",
-    ) == "ok"
+    assert (
+        await _activities(store)._invoke_runtime(
+            payload,
+            run,
+            operation,
+            role="worker",
+            task_id="task-1",
+        )
+        == "ok"
+    )
     recovered = await store.runs.get(run.run_id, run.tenant_id)
-    assert await _activities(store)._invoke_runtime(
-        payload,
-        recovered,
-        operation,
-        role="worker",
-        task_id="task-1",
-    ) == "ok"
+    assert (
+        await _activities(store)._invoke_runtime(
+            payload,
+            recovered,
+            operation,
+            role="worker",
+            task_id="task-1",
+        )
+        == "ok"
+    )
     recovered_again = await store.runs.get(run.run_id, run.tenant_id)
     with pytest.raises(PlatformError, match="TRAJECTORY_PAUSED"):
         await _activities(store)._invoke_runtime(

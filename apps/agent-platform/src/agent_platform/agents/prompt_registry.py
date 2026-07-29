@@ -16,13 +16,10 @@ class PromptRegistry:
         if manifest.get("schema_version") != "1.0":
             raise ValueError("PROMPT_REGISTRY_SCHEMA_UNSUPPORTED")
         self._records = {
-            (item["prompt_id"], item["version"]): item
-            for item in manifest.get("prompts", [])
+            (item["prompt_id"], item["version"]): item for item in manifest.get("prompts", [])
         }
 
-    def render(
-        self, prompt_id: str, version: str, trusted_inputs: dict[str, Any]
-    ) -> str:
+    def render(self, prompt_id: str, version: str, trusted_inputs: dict[str, Any]) -> str:
         record = self._records.get((prompt_id, version))
         if record is None:
             raise ValueError(f"PROMPT_NOT_FOUND: {prompt_id}@{version}")

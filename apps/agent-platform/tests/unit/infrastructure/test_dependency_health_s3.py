@@ -155,9 +155,7 @@ async def test_s3_governance_probe_fails_closed_for_missing_control(
 @pytest.mark.asyncio
 async def test_s3_governance_probe_accepts_per_object_retention_without_bucket_default() -> None:
     client = GovernedBucketClient()
-    client.object_lock = {
-        "ObjectLockConfiguration": {"ObjectLockEnabled": "Enabled"}
-    }
+    client.object_lock = {"ObjectLockConfiguration": {"ObjectLockEnabled": "Enabled"}}
 
     await s3_probe(
         client,
@@ -166,6 +164,7 @@ async def test_s3_governance_probe_accepts_per_object_retention_without_bucket_d
         expected_kms_key="kms-general",
     )()
 
+
 @pytest.mark.asyncio
 async def test_s3_basic_probe_does_not_require_cloud_governance_in_local_tests() -> None:
     client = GovernedBucketClient()
@@ -173,6 +172,8 @@ async def test_s3_basic_probe_does_not_require_cloud_governance_in_local_tests()
     await s3_probe(client, "artifact-prod")()
 
     assert client.calls == ["head"]
+
+
 @pytest.mark.asyncio
 async def test_s3_staging_probe_requires_private_kms_short_lived_unlocked_bucket() -> None:
     client = GovernedBucketClient()
@@ -187,9 +188,7 @@ async def test_s3_staging_probe_requires_private_kms_short_lived_unlocked_bucket
             }
         ]
     }
-    client.object_lock = {
-        "ObjectLockConfiguration": {"ObjectLockEnabled": "Disabled"}
-    }
+    client.object_lock = {"ObjectLockConfiguration": {"ObjectLockEnabled": "Disabled"}}
 
     await s3_probe(
         client,
@@ -233,9 +232,7 @@ async def test_s3_staging_probe_fails_closed_for_long_lived_or_locked_temp_objec
             }
         ]
     }
-    client.object_lock = {
-        "ObjectLockConfiguration": {"ObjectLockEnabled": object_lock_enabled}
-    }
+    client.object_lock = {"ObjectLockConfiguration": {"ObjectLockEnabled": object_lock_enabled}}
 
     with pytest.raises(RuntimeError, match=error_code):
         await s3_probe(

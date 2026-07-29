@@ -225,9 +225,7 @@ def test_deterministic_criterion_verification_covers_all_methods() -> None:
 
 def _factory() -> AgentFactory:
     return AgentFactory(
-        model_policy=ModelPolicy(
-            ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
-        ),
+        model_policy=ModelPolicy(("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")),
         prompts=PromptRegistry(Path("prompts")),
     )
 
@@ -424,15 +422,11 @@ def test_openai_runtime_usage_signature_and_model_name_fallbacks() -> None:
     assert runtime._non_negative_int(-1) == 0
     assert runtime._model_name(SimpleNamespace(model="gpt-5.6-sol")) == "gpt-5.6-sol"
     assert (
-        runtime._model_name(
-            SimpleNamespace(model=SimpleNamespace(model="gpt-5.6-sol"))
-        )
+        runtime._model_name(SimpleNamespace(model=SimpleNamespace(model="gpt-5.6-sol")))
         == "gpt-5.6-sol"
     )
     assert (
-        runtime._model_name(
-            SimpleNamespace(model=SimpleNamespace(model_name="gpt-5.6-sol"))
-        )
+        runtime._model_name(SimpleNamespace(model=SimpleNamespace(model_name="gpt-5.6-sol")))
         == "gpt-5.6-sol"
     )
     assert runtime._model_name(SimpleNamespace()) == "unknown"
@@ -453,9 +447,7 @@ async def test_openai_memory_failures_are_wrapped_without_losing_cause() -> None
             )
 
     with pytest.raises(PlatformError) as platform_error:
-        await _openai_runtime(memory_vault=_PlatformFailureVault())._memory_blocks(
-            contract
-        )
+        await _openai_runtime(memory_vault=_PlatformFailureVault())._memory_blocks(contract)
     assert platform_error.value.code == "MEMORY_CONTEXT_UNAVAILABLE"
     assert platform_error.value.context == {"cause_code": "MEMORY_BACKEND_BUSY"}
 
@@ -464,18 +456,17 @@ async def test_openai_memory_failures_are_wrapped_without_losing_cause() -> None
             raise RuntimeError("socket closed")
 
     with pytest.raises(PlatformError) as unexpected:
-        await _openai_runtime(memory_vault=_UnexpectedFailureVault())._memory_blocks(
-            contract
-        )
+        await _openai_runtime(memory_vault=_UnexpectedFailureVault())._memory_blocks(contract)
     assert unexpected.value.context == {"cause_type": "RuntimeError"}
     assert unexpected.value.retryable is True
 
 
 def test_openai_context_purpose_and_incomplete_manifest_are_fail_closed() -> None:
     runtime = _openai_runtime()
-    assert runtime._memory_purpose(
-        _contract(constraints={"purpose": "  investigation  "})
-    ) == "investigation"
+    assert (
+        runtime._memory_purpose(_contract(constraints={"purpose": "  investigation  "}))
+        == "investigation"
+    )
     assert runtime._memory_purpose(_contract()) == "FinalResponse@1.0"
 
     assembly = ContextAssembly(

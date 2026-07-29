@@ -16,7 +16,7 @@ from typing import Any, Literal, Protocol, cast
 from urllib.parse import quote, urlsplit
 from uuid import UUID, uuid4
 
-from sqlalchemy import Text, case, exists, or_, select, text, update
+from sqlalchemy import Text, case, exists, func, literal, or_, select, text, update
 from sqlalchemy import cast as sql_cast
 
 from agent_platform.domain.hashing import canonical_json, payload_hash
@@ -46,6 +46,37 @@ EVENT_POLICY_RESOURCE = "run_event"
 _SAFE_RESOURCE_TYPE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 
 type ArchiveRows = Iterable[Mapping[str, Any]] | AsyncIterable[Mapping[str, Any]]
+
+
+def _legal_hold_lock_key(
+    tenant_id: str,
+    resource_type: str,
+    resource_id: str,
+) -> int:
+    scope = "\x00".join((tenant_id, resource_type, resource_id)).encode("utf-8")
+    return int.from_bytes(hashlib.sha256(scope).digest()[:8], "big", signed=True)
+
+
+async def _lock_legal_hold_scope(
+    session: Any,
+    *,
+    tenant_id: str,
+    resource_type: str,
+    resource_id: str,
+    include_wildcard: bool,
+) -> None:
+    # An advisory transaction lock serializes a hold insert with destructive
+    # mutation even when no LegalHold row exists yet to acquire FOR UPDATE.
+    resource_ids = {resource_id}
+    if include_wildcard:
+        resource_ids.add("*")
+    for lock_key in sorted(
+        _legal_hold_lock_key(tenant_id, resource_type, value) for value in resource_ids
+    ):
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_key)"),
+            {"lock_key": lock_key},
+        )
 
 
 class LifecycleAction(StrEnum):
@@ -84,6 +115,19 @@ class RetentionPolicy:
             raise ValueError("RETENTION_POLICY_REQUIRED_FIELD_MISSING")
         if self.version <= 0 or self.online_retention_days <= 0:
             raise ValueError("RETENTION_POLICY_VERSION_OR_DURATION_INVALID")
+        if self.disposition not in {
+            "archive_then_purge",
+            "immutable_archive",
+            "hash_only_delete",
+            "artifact_then_delete",
+            "retain",
+        }:
+            raise ValueError("RETENTION_POLICY_DISPOSITION_INVALID")
+        if self.disposition in {"archive_then_purge", "immutable_archive"}:
+            if self.archive_retention_days is None:
+                raise ValueError("RETENTION_POLICY_ARCHIVE_DURATION_REQUIRED")
+            if not self.immutable_archive:
+                raise ValueError("RETENTION_POLICY_IMMUTABLE_ARCHIVE_REQUIRED")
         if (
             self.archive_retention_days is not None
             and self.archive_retention_days < self.online_retention_days
@@ -151,18 +195,20 @@ class ArchiveDescriptor:
     resource_type: str
     resource_id: str
     policy: RetentionPolicy
+    retention_anchor: datetime
 
     def validate(self) -> None:
         self.policy.validate()
         if not self.tenant_id.strip() or not self.resource_id.strip():
             raise ValueError("RETENTION_ARCHIVE_SCOPE_REQUIRED")
-        if (
-            self.resource_type != self.policy.resource_type
-            or not _SAFE_RESOURCE_TYPE.fullmatch(self.resource_type)
+        if self.resource_type != self.policy.resource_type or not _SAFE_RESOURCE_TYPE.fullmatch(
+            self.resource_type
         ):
             raise ValueError("RETENTION_ARCHIVE_RESOURCE_TYPE_INVALID")
         if not self.policy.immutable_archive:
             raise ValueError("RETENTION_ARCHIVE_IMMUTABILITY_REQUIRED")
+        if self.retention_anchor.tzinfo is None or self.retention_anchor.utcoffset() is None:
+            raise ValueError("RETENTION_ARCHIVE_ANCHOR_TIMEZONE_REQUIRED")
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,11 +247,16 @@ class S3ImmutableArchiveAdapter:
         environment: str,
         kms_key_id: str | None,
         object_lock_mode: Literal["GOVERNANCE", "COMPLIANCE"] = "COMPLIANCE",
+        allow_unencrypted_local: bool = False,
     ) -> None:
         if not bucket.strip():
             raise ValueError("RETENTION_ARCHIVE_BUCKET_REQUIRED")
         if kms_key_id is not None and not kms_key_id.strip():
             raise ValueError("RETENTION_ARCHIVE_KMS_INVALID")
+        if allow_unencrypted_local and environment != "dev":
+            raise ValueError("ARTIFACT_UNENCRYPTED_LOCAL_FORBIDDEN")
+        if allow_unencrypted_local and kms_key_id:
+            raise ValueError("ARTIFACT_ENCRYPTION_CONFIG_CONFLICT")
         if not re.fullmatch(r"[a-z][a-z0-9-]{1,31}", environment):
             raise ValueError("RETENTION_ARCHIVE_ENVIRONMENT_INVALID")
         self._client = client
@@ -213,6 +264,7 @@ class S3ImmutableArchiveAdapter:
         self._environment = environment
         self._kms_key_id = kms_key_id.strip() if kms_key_id is not None else None
         self._object_lock_mode = object_lock_mode
+        self._allow_unencrypted_local = allow_unencrypted_local
 
     async def archive_json_lines(
         self,
@@ -230,7 +282,10 @@ class S3ImmutableArchiveAdapter:
             retain_days = descriptor.policy.archive_retention_days
             if retain_days is None:
                 raise ValueError("RETENTION_ARCHIVE_DURATION_REQUIRED")
-            requested_retain_until = datetime.now(UTC) + timedelta(days=retain_days)
+            requested_retain_until = self._requested_retain_until(
+                descriptor.retention_anchor,
+                retain_days,
+            )
             metadata = {
                 "sha256": digest,
                 "policy-key": descriptor.policy.policy_key,
@@ -251,16 +306,16 @@ class S3ImmutableArchiveAdapter:
                 metadata=metadata,
                 retain_until=requested_retain_until,
             )
-            head = await asyncio.to_thread(
-                self._client.head_object,
-                Bucket=self._bucket,
-                Key=key,
-            )
+            head_request = {"Bucket": self._bucket, "Key": key}
+            if version_id is not None:
+                head_request["VersionId"] = version_id
+            head = await asyncio.to_thread(self._client.head_object, **head_request)
             actual_retain_until = self._verify_head(
                 head=head,
                 digest=digest,
                 size=size,
                 metadata=metadata,
+                minimum_retain_until=requested_retain_until,
             )
             actual_version = str(head.get("VersionId") or version_id or "").strip()
             if not actual_version:
@@ -312,6 +367,13 @@ class S3ImmutableArchiveAdapter:
         if hashlib.sha256(content).hexdigest() != receipt.sha256:
             raise RuntimeError("RETENTION_ARCHIVE_HASH_MISMATCH")
         return content
+
+    @staticmethod
+    def _requested_retain_until(anchor: datetime, retain_days: int) -> datetime:
+        retain_until = anchor.astimezone(UTC) + timedelta(days=retain_days)
+        if retain_until <= datetime.now(UTC):
+            raise RuntimeError("RETENTION_ARCHIVE_OBJECT_LOCK_DEADLINE_EXPIRED")
+        return retain_until
 
     @staticmethod
     async def _write_archive(
@@ -368,15 +430,16 @@ class S3ImmutableArchiveAdapter:
     ) -> str | None:
         checksum = base64.b64encode(bytes.fromhex(digest)).decode("ascii")
 
-        encryption = (
-            {
+        if self._kms_key_id is not None:
+            encryption = {
                 "ServerSideEncryption": "aws:kms",
                 "SSEKMSKeyId": self._kms_key_id,
                 "BucketKeyEnabled": True,
             }
-            if self._kms_key_id is not None
-            else {"ServerSideEncryption": "AES256"}
-        )
+        elif self._allow_unencrypted_local:
+            encryption = {}
+        else:
+            encryption = {"ServerSideEncryption": "AES256"}
 
         def put() -> dict[str, Any]:
             with path.open("rb") as body:
@@ -412,6 +475,7 @@ class S3ImmutableArchiveAdapter:
         digest: str,
         size: int,
         metadata: Mapping[str, str],
+        minimum_retain_until: datetime,
     ) -> datetime:
         actual_metadata = head.get("Metadata")
         if not isinstance(actual_metadata, Mapping) or any(
@@ -428,7 +492,7 @@ class S3ImmutableArchiveAdapter:
                 or head.get("SSEKMSKeyId") != self._kms_key_id
             ):
                 raise RuntimeError("RETENTION_ARCHIVE_KMS_READBACK_FAILED")
-        elif head.get("ServerSideEncryption") != "AES256":
+        elif not self._allow_unencrypted_local and head.get("ServerSideEncryption") != "AES256":
             raise RuntimeError("RETENTION_ARCHIVE_ENCRYPTION_READBACK_FAILED")
         if head.get("ObjectLockMode") != self._object_lock_mode:
             raise RuntimeError("RETENTION_ARCHIVE_OBJECT_LOCK_READBACK_FAILED")
@@ -438,6 +502,11 @@ class S3ImmutableArchiveAdapter:
         retain_until = raw_retain_until.astimezone(UTC)
         if retain_until <= datetime.now(UTC):
             raise RuntimeError("RETENTION_ARCHIVE_OBJECT_LOCK_EXPIRED")
+        # S3 implementations may round timestamps and an idempotent retry observes
+        # the original lock. A bounded skew preserves retries without accepting a
+        # materially shorter retention period.
+        if retain_until < minimum_retain_until - timedelta(minutes=5):
+            raise RuntimeError("RETENTION_ARCHIVE_OBJECT_LOCK_DURATION_TOO_SHORT")
         return retain_until
 
     @staticmethod
@@ -472,6 +541,49 @@ class PostgresLifecycleRetention:
         self._sessions = session_factory
         self._archive = archive
         self._role_verified = False
+
+    @staticmethod
+    def _retention_deadline_reached(
+        *,
+        now: datetime,
+        resource_type: str,
+        retention_field: Literal[
+            "online_retention_days",
+            "archive_retention_days",
+        ],
+    ) -> Any:
+        retention_days_column = (
+            RetentionPolicyVersion.online_retention_days
+            if retention_field == "online_retention_days"
+            else RetentionPolicyVersion.archive_retention_days
+        )
+        retention_days = (
+            select(retention_days_column)
+            .where(
+                or_(
+                    RetentionPolicyVersion.tenant_id == AgentRun.tenant_id,
+                    RetentionPolicyVersion.tenant_id == PLATFORM_POLICY_TENANT,
+                ),
+                RetentionPolicyVersion.resource_type == resource_type,
+                RetentionPolicyVersion.enabled.is_(True),
+                RetentionPolicyVersion.effective_at <= now,
+            )
+            .order_by(
+                case(
+                    (RetentionPolicyVersion.tenant_id == AgentRun.tenant_id, 0),
+                    else_=1,
+                ),
+                RetentionPolicyVersion.version.desc(),
+            )
+            .limit(1)
+            .correlate(AgentRun)
+            .scalar_subquery()
+        )
+        elapsed_seconds = func.extract(
+            "epoch",
+            literal(now) - AgentRun.completed_at,
+        )
+        return retention_days.is_(None) | (elapsed_seconds >= retention_days * 86_400)
 
     async def run_once(
         self,
@@ -510,7 +622,11 @@ class PostgresLifecycleRetention:
                         .where(
                             AgentRun.status.in_(TERMINAL_RUN_STATUSES),
                             AgentRun.completed_at.is_not(None),
-                            AgentRun.completed_at <= now - timedelta(days=90),
+                            self._retention_deadline_reached(
+                                now=now,
+                                resource_type=RUN_POLICY_RESOURCE,
+                                retention_field="online_retention_days",
+                            ),
                             ~done,
                         )
                         .order_by(AgentRun.completed_at)
@@ -520,7 +636,7 @@ class PostgresLifecycleRetention:
             )
         archived = held = failed = 0
         for run in rows:
-            policy = await self._policy(run.tenant_id, RUN_POLICY_RESOURCE)
+            policy = await self._policy(run.tenant_id, RUN_POLICY_RESOURCE, now)
             completed_at = cast(datetime, run.completed_at)
             if now - completed_at < timedelta(days=policy.online_retention_days):
                 continue
@@ -561,6 +677,7 @@ class PostgresLifecycleRetention:
                         resource_type=RUN_POLICY_RESOURCE,
                         resource_id=str(run.run_id),
                         policy=policy,
+                        retention_anchor=self._retention_anchor(job, policy),
                     ),
                     records,
                 )
@@ -602,7 +719,11 @@ class PostgresLifecycleRetention:
                         .where(
                             AgentRun.status.in_(TERMINAL_RUN_STATUSES),
                             AgentRun.completed_at.is_not(None),
-                            AgentRun.completed_at <= now - timedelta(days=90),
+                            self._retention_deadline_reached(
+                                now=now,
+                                resource_type=RUN_POLICY_RESOURCE,
+                                retention_field="archive_retention_days",
+                            ),
                             archive_done,
                             ~purge_done,
                         )
@@ -613,12 +734,10 @@ class PostgresLifecycleRetention:
             )
         purged = held = failed = 0
         for run in rows:
-            policy = await self._policy(run.tenant_id, RUN_POLICY_RESOURCE)
-            if (
-                policy.archive_retention_days is None
-                or now - cast(datetime, run.completed_at)
-                < timedelta(days=policy.archive_retention_days)
-            ):
+            policy = await self._policy(run.tenant_id, RUN_POLICY_RESOURCE, now)
+            if policy.archive_retention_days is None or now - cast(
+                datetime, run.completed_at
+            ) < timedelta(days=policy.archive_retention_days):
                 continue
             hold = await self._active_hold(
                 tenant_id=run.tenant_id,
@@ -649,12 +768,15 @@ class PostgresLifecycleRetention:
             if job is None:
                 continue
             try:
-                await self._purge_run(job.job_id, run, now)
+                did_purge = await self._purge_run(job.job_id, run, now)
             except Exception as exc:
                 await self._fail_job(job.job_id, exc, now)
                 failed += 1
             else:
-                purged += 1
+                if did_purge:
+                    purged += 1
+                else:
+                    held += 1
         return purged, held, failed
 
     async def _archive_events(self, now: datetime, batch_size: int) -> tuple[int, int, int]:
@@ -674,7 +796,11 @@ class PostgresLifecycleRetention:
                         .where(
                             AgentRun.status.in_(TERMINAL_RUN_STATUSES),
                             AgentRun.completed_at.is_not(None),
-                            AgentRun.completed_at <= now - timedelta(days=365),
+                            self._retention_deadline_reached(
+                                now=now,
+                                resource_type=EVENT_POLICY_RESOURCE,
+                                retention_field="online_retention_days",
+                            ),
                             ~done,
                         )
                         .order_by(AgentRun.completed_at)
@@ -684,7 +810,7 @@ class PostgresLifecycleRetention:
             )
         archived = held = failed = 0
         for run in rows:
-            policy = await self._policy(run.tenant_id, EVENT_POLICY_RESOURCE)
+            policy = await self._policy(run.tenant_id, EVENT_POLICY_RESOURCE, now)
             if now - cast(datetime, run.completed_at) < timedelta(
                 days=policy.online_retention_days
             ):
@@ -726,6 +852,7 @@ class PostgresLifecycleRetention:
                         resource_type=EVENT_POLICY_RESOURCE,
                         resource_id=str(run.run_id),
                         policy=policy,
+                        retention_anchor=self._retention_anchor(job, policy),
                     ),
                     rows_stream,
                 )
@@ -743,18 +870,21 @@ class PostgresLifecycleRetention:
                 archived += 1
         return archived, held, failed
 
-    async def _policy(self, tenant_id: str, resource_type: str) -> RetentionPolicy:
+    async def _policy(
+        self,
+        tenant_id: str,
+        resource_type: str,
+        now: datetime,
+    ) -> RetentionPolicy:
         async with self._sessions() as session:
             await self._assert_retention_role(session)
             row = await session.scalar(
                 select(RetentionPolicyVersion)
                 .where(
-                    RetentionPolicyVersion.tenant_id.in_(
-                        (tenant_id, PLATFORM_POLICY_TENANT)
-                    ),
+                    RetentionPolicyVersion.tenant_id.in_((tenant_id, PLATFORM_POLICY_TENANT)),
                     RetentionPolicyVersion.resource_type == resource_type,
                     RetentionPolicyVersion.enabled.is_(True),
-                    RetentionPolicyVersion.effective_at <= datetime.now(UTC),
+                    RetentionPolicyVersion.effective_at <= now,
                 )
                 .order_by(
                     case(
@@ -794,9 +924,7 @@ class PostgresLifecycleRetention:
         include_parent_run: bool = False,
     ) -> LegalHold | None:
         resource_types = (
-            (resource_type, RUN_POLICY_RESOURCE)
-            if include_parent_run
-            else (resource_type,)
+            (resource_type, RUN_POLICY_RESOURCE) if include_parent_run else (resource_type,)
         )
         async with self._sessions() as session:
             await self._assert_retention_role(session)
@@ -825,6 +953,11 @@ class PostgresLifecycleRetention:
         policy: RetentionPolicy,
         now: datetime,
     ) -> RetentionJob | None:
+        archive_retain_until: datetime | None = None
+        if operation == "archive":
+            if policy.archive_retention_days is None:
+                raise RuntimeError("RETENTION_POLICY_ARCHIVE_DURATION_REQUIRED")
+            archive_retain_until = now + timedelta(days=policy.archive_retention_days)
         async with self._sessions() as session, session.begin():
             await self._assert_retention_role(session)
             job = await session.scalar(
@@ -851,6 +984,7 @@ class PostgresLifecycleRetention:
                     status="in_progress",
                     attempts=1,
                     next_attempt_at=now,
+                    retain_until=archive_retain_until,
                     started_at=now,
                     updated_at=now,
                 )
@@ -859,6 +993,8 @@ class PostgresLifecycleRetention:
             stale = job.started_at is not None and job.started_at <= now - timedelta(hours=1)
             if job.status == "succeeded":
                 return None
+            if operation == "archive" and job.retain_until is None:
+                job.retain_until = archive_retain_until
             if job.status == "in_progress" and not stale:
                 return None
             if job.status == "failed" and job.next_attempt_at > now:
@@ -871,6 +1007,19 @@ class PostgresLifecycleRetention:
             job.last_error_detail = None
             job.updated_at = now
             return job
+
+    @staticmethod
+    def _retention_anchor(job: RetentionJob, policy: RetentionPolicy) -> datetime:
+        retain_until = job.retain_until
+        retain_days = policy.archive_retention_days
+        if (
+            retain_until is None
+            or retain_days is None
+            or retain_until.tzinfo is None
+            or retain_until.utcoffset() is None
+        ):
+            raise RuntimeError("RETENTION_JOB_ARCHIVE_DEADLINE_REQUIRED")
+        return retain_until - timedelta(days=retain_days)
 
     async def _mark_held(
         self,
@@ -946,9 +1095,7 @@ class PostgresLifecycleRetention:
         async with self._sessions() as session, session.begin():
             await self._assert_retention_role(session)
             job = await session.scalar(
-                select(RetentionJob)
-                .where(RetentionJob.job_id == job_id)
-                .with_for_update()
+                select(RetentionJob).where(RetentionJob.job_id == job_id).with_for_update()
             )
             if job is None:
                 raise RuntimeError("RETENTION_JOB_NOT_FOUND")
@@ -979,9 +1126,7 @@ class PostgresLifecycleRetention:
         async with self._sessions() as session, session.begin():
             await self._assert_retention_role(session)
             job = await session.scalar(
-                select(RetentionJob)
-                .where(RetentionJob.job_id == job_id)
-                .with_for_update()
+                select(RetentionJob).where(RetentionJob.job_id == job_id).with_for_update()
             )
             if job is None or job.status == "succeeded":
                 return
@@ -1002,13 +1147,18 @@ class PostgresLifecycleRetention:
                 details={"error_code": code},
             )
 
-    async def _purge_run(self, job_id: UUID, run: AgentRun, now: datetime) -> None:
+    async def _purge_run(self, job_id: UUID, run: AgentRun, now: datetime) -> bool:
         async with self._sessions() as session, session.begin():
             await self._assert_retention_role(session)
+            await _lock_legal_hold_scope(
+                session,
+                tenant_id=run.tenant_id,
+                resource_type=RUN_POLICY_RESOURCE,
+                resource_id=str(run.run_id),
+                include_wildcard=True,
+            )
             job = await session.scalar(
-                select(RetentionJob)
-                .where(RetentionJob.job_id == job_id)
-                .with_for_update()
+                select(RetentionJob).where(RetentionJob.job_id == job_id).with_for_update()
             )
             database_run = await session.scalar(
                 select(AgentRun)
@@ -1022,6 +1172,40 @@ class PostgresLifecycleRetention:
                 raise RuntimeError("RETENTION_PURGE_TARGET_NOT_FOUND")
             if job.status != "in_progress":
                 raise RuntimeError("RETENTION_JOB_NOT_IN_PROGRESS")
+            hold = await session.scalar(
+                select(LegalHold)
+                .where(
+                    LegalHold.tenant_id == run.tenant_id,
+                    LegalHold.resource_type == RUN_POLICY_RESOURCE,
+                    LegalHold.resource_id.in_((str(run.run_id), "*")),
+                    LegalHold.status == "active",
+                    LegalHold.starts_at <= now,
+                    or_(
+                        LegalHold.expires_at.is_(None),
+                        LegalHold.expires_at > now,
+                    ),
+                )
+                .order_by(LegalHold.starts_at, LegalHold.hold_id)
+                .with_for_update()
+                .limit(1)
+            )
+            if hold is not None:
+                job.status = "held"
+                job.updated_at = now
+                await self._append_evidence(
+                    session=session,
+                    job=job,
+                    operation="legal_hold_blocked",
+                    now=now,
+                    legal_hold_id=hold.hold_id,
+                    details={
+                        "case_reference_hash": hashlib.sha256(
+                            hold.case_reference.encode("utf-8")
+                        ).hexdigest(),
+                        "hold_owner": hold.owner_id,
+                    },
+                )
+                return False
             archive_job = await session.scalar(
                 select(RetentionJob).where(
                     RetentionJob.tenant_id == run.tenant_id,
@@ -1034,9 +1218,7 @@ class PostgresLifecycleRetention:
             if archive_job is None or not archive_job.archive_sha256:
                 raise RuntimeError("RETENTION_ARCHIVE_REQUIRED_BEFORE_PURGE")
             source_hash = payload_hash(self._orm_payload(database_run))
-            principal_hash = hashlib.sha256(
-                database_run.principal_id.encode("utf-8")
-            ).hexdigest()
+            principal_hash = hashlib.sha256(database_run.principal_id.encode("utf-8")).hexdigest()
             database_run.principal_id = f"sha256:{principal_hash}"
             database_run.contract_schema_version = "RetentionPurged@1.0"
             database_run.contract_json = {
@@ -1094,6 +1276,7 @@ class PostgresLifecycleRetention:
                     ],
                 },
             )
+            return True
 
     async def _append_evidence(
         self,
@@ -1225,10 +1408,7 @@ class PostgresLifecycleRetention:
 
     @staticmethod
     def _orm_payload(row: Any) -> dict[str, Any]:
-        return {
-            column.name: getattr(row, column.name)
-            for column in row.__table__.columns
-        }
+        return {column.name: getattr(row, column.name) for column in row.__table__.columns}
 
     async def _assert_retention_role(self, session: Any) -> None:
         if self._role_verified:
@@ -1294,9 +1474,7 @@ class PostgresLegalHoldService:
             "policy_version": command.policy_version,
             "starts_at": command.starts_at.isoformat(),
             "expires_at": (
-                command.expires_at.isoformat()
-                if command.expires_at is not None
-                else None
+                command.expires_at.isoformat() if command.expires_at is not None else None
             ),
         }
         artifact_id = self._artifact_id(
@@ -1317,6 +1495,13 @@ class PostgresLegalHoldService:
             }
         )
         async with tenant_session(self._sessions, command.tenant_id) as session:
+            await _lock_legal_hold_scope(
+                session,
+                tenant_id=command.tenant_id,
+                resource_type=command.resource_type,
+                resource_id=command.resource_id,
+                include_wildcard=False,
+            )
             session.add(
                 LegalHold(
                     hold_id=hold_id,
@@ -1480,6 +1665,3 @@ class PostgresLegalHoldService:
             return UUID(resource_id)
         except ValueError as exc:
             raise ValueError("ARTIFACT_LEGAL_HOLD_RESOURCE_ID_INVALID") from exc
-
-
-

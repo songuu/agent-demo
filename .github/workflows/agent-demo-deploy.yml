@@ -5,6 +5,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      deploy_agent_platform_single_node:
+        description: Deploy the constrained Agent Platform profile to the SPIFFE host
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: agent-demo-production
@@ -21,7 +27,7 @@ jobs:
   build-and-deploy:
     name: Build and deploy (agent-demo apps)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
 
     env:
       NODE_VERSION: "22"
@@ -175,6 +181,7 @@ jobs:
           chmod 600 ~/.ssh/config
 
       - name: Deploy production
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_agent_platform_single_node }}
         run: |
           set -euo pipefail
           pnpm deploy:prod -- \
@@ -185,6 +192,7 @@ jobs:
             --branch "${DEPLOY_BRANCH}"
 
       - name: Verify production
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.deploy_agent_platform_single_node }}
         run: |
           set -euo pipefail
           health_json="$(ssh -i ~/.ssh/agent_demo_deploy_key -o BatchMode=yes "${DEPLOY_TARGET}" "curl -fsS http://127.0.0.1:${PORT}${BASE_PATH}/healthz")"
@@ -197,3 +205,68 @@ jobs:
             test "${code}" = "200"
           done
           echo "agent-demo production verified"
+
+      - name: Deploy Agent Platform constrained single-node profile
+        if: inputs.deploy_agent_platform_single_node
+        run: |
+          set -euo pipefail
+          spiffe_before_code="$(curl --silent --show-error --output /dev/null \
+            --write-out '%{http_code}' \
+            "https://${DOMAIN}/agent-demo/spiffe/")"
+          test "${spiffe_before_code}" = "200"
+          spiffe_before_architecture_code="$(curl --silent --show-error --output /dev/null \
+            --write-out '%{http_code}' \
+            "https://${DOMAIN}/agent-demo/spiffe/assets/spiffe-agent-mtls-complete-architecture.svg")"
+          test "${spiffe_before_architecture_code}" = "200"
+          pnpm deploy:agent-platform:single-node -- \
+            --apply \
+            --deploy-host "${DEPLOY_TARGET}" \
+            --domain "${DOMAIN}" \
+            --repository-url "${REPOSITORY_URL}" \
+            --branch "${DEPLOY_BRANCH}" \
+            --git-sha "${GITHUB_SHA}"
+
+      - name: Verify Agent Platform constrained single-node profile
+        if: inputs.deploy_agent_platform_single_node
+        run: |
+          set -euo pipefail
+          local_health="$(ssh -i ~/.ssh/agent_demo_deploy_key -o BatchMode=yes "${DEPLOY_TARGET}" \
+            "curl -fsS http://127.0.0.1:5181/health")"
+          echo "${local_health}" | grep -Fq "\"release_git_sha\":\"${GITHUB_SHA}\""
+          echo "${local_health}" | grep -Eq '"release_image_digest":"sha256:[0-9a-f]{64}"'
+
+          local_ready_response="$(ssh -i ~/.ssh/agent_demo_deploy_key -o BatchMode=yes \
+            "${DEPLOY_TARGET}" "curl -sS -w '\n%{http_code}' http://127.0.0.1:5181/ready")"
+          local_ready_code="${local_ready_response##*$'\n'}"
+          local_ready_body="${local_ready_response%$'\n'*}"
+          test "${local_ready_code}" = "503"
+          echo "${local_ready_body}" | \
+            grep -Fq '"artifact_malware_scanner":"error:policy-fail-closed:structural-only"'
+
+          for path in \
+            "/agent-demo/agent-platform/" \
+            "/agent-demo/agent-platform/health"; do
+            code="$(curl --silent --show-error --output /dev/null \
+              --write-out '%{http_code}' "https://${DOMAIN}${path}")"
+            echo "public https://${DOMAIN}${path} -> ${code}"
+            test "${code}" = "200"
+          done
+
+          ready_code="$(curl --silent --show-error --output /dev/null \
+            --write-out '%{http_code}' \
+            "https://${DOMAIN}/agent-demo/agent-platform/ready")"
+          test "${ready_code}" = "503"
+          denied_code="$(curl --silent --show-error --output /dev/null \
+            --write-out '%{http_code}' \
+            --header 'X-Agent-Roles: admin' \
+            "https://${DOMAIN}/agent-demo/agent-platform/v1/runs")"
+          test "${denied_code}" = "404"
+          spiffe_after_code="$(curl --silent --show-error --output /dev/null \
+            --write-out '%{http_code}' \
+            "https://${DOMAIN}/agent-demo/spiffe/")"
+          test "${spiffe_after_code}" = "200"
+          spiffe_after_architecture_code="$(curl --silent --show-error --output /dev/null \
+            --write-out '%{http_code}' \
+            "https://${DOMAIN}/agent-demo/spiffe/assets/spiffe-agent-mtls-complete-architecture.svg")"
+          test "${spiffe_after_architecture_code}" = "200"
+          echo "agent-platform constrained profile deployed; known scanner readiness block preserved"

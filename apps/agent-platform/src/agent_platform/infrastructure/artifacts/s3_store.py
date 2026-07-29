@@ -37,15 +37,21 @@ class S3ArtifactStore:
         kms_key_id: str | None,
         environment: str,
         staging_bucket: str | None = None,
+        allow_unencrypted_local: bool = False,
         multipart_part_size_bytes: int = 8 * 1024 * 1024,
     ) -> None:
         if not 5 * 1024 * 1024 <= multipart_part_size_bytes <= 64 * 1024 * 1024:
             raise ValueError("ARTIFACT_MULTIPART_PART_SIZE_INVALID")
+        if allow_unencrypted_local and environment != "dev":
+            raise ValueError("ARTIFACT_UNENCRYPTED_LOCAL_FORBIDDEN")
+        if allow_unencrypted_local and kms_key_id:
+            raise ValueError("ARTIFACT_ENCRYPTION_CONFIG_CONFLICT")
         self._client = client
         self._bucket = bucket
         self._kms_key_id = kms_key_id
         self._environment = environment
         self._staging_bucket = staging_bucket
+        self._allow_unencrypted_local = allow_unencrypted_local
         self._multipart_part_size_bytes = multipart_part_size_bytes
 
     def _key(self, artifact: ArtifactRecord) -> str:
@@ -367,11 +373,11 @@ class S3ArtifactStore:
 
     def _encryption(self, artifact: ArtifactRecord) -> dict[str, str]:
         kms_key_id = artifact.encryption_key_ref or self._kms_key_id
-        return (
-            {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": kms_key_id}
-            if kms_key_id
-            else {"ServerSideEncryption": "AES256"}
-        )
+        if kms_key_id:
+            return {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": kms_key_id}
+        if self._allow_unencrypted_local:
+            return {}
+        return {"ServerSideEncryption": "AES256"}
 
     @staticmethod
     def _release_binding_metadata(artifact: ArtifactRecord) -> dict[str, str]:
@@ -895,11 +901,28 @@ class S3ArtifactStore:
 
     async def delete(self, artifact_id: UUID, tenant_id: str) -> None:
         key = await self._find_key(artifact_id, tenant_id)
-        head = await asyncio.to_thread(
-            self._client.head_object,
-            Bucket=self._bucket,
-            Key=key,
-        )
+        try:
+            head = await asyncio.to_thread(
+                self._client.head_object,
+                Bucket=self._bucket,
+                Key=key,
+            )
+        except Exception as exc:
+            raise PlatformError(
+                "ARTIFACT_DELETE_GOVERNANCE_READ_FAILED",
+                "Artifact deletion requires a successful object-governance readback",
+                retryable=True,
+                http_status=503,
+                context={"operation": "head_object"},
+            ) from exc
+        if not isinstance(head, Mapping):
+            raise PlatformError(
+                "ARTIFACT_DELETE_GOVERNANCE_READ_FAILED",
+                "Artifact deletion received an invalid object-governance readback",
+                retryable=True,
+                http_status=503,
+                context={"operation": "head_object"},
+            )
         if head.get("ObjectLockLegalHoldStatus") == "ON":
             raise PlatformError(
                 "ARTIFACT_LEGAL_HOLD_ACTIVE",

@@ -20,12 +20,8 @@ ACTION_TERMINAL_STATUSES = {
 }
 
 _RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
-    RunStatus.RECEIVED: frozenset(
-        {RunStatus.CLASSIFIED, RunStatus.FAILED, RunStatus.CANCELLED}
-    ),
-    RunStatus.CLASSIFIED: frozenset(
-        {RunStatus.PLANNING, RunStatus.FAILED, RunStatus.CANCELLED}
-    ),
+    RunStatus.RECEIVED: frozenset({RunStatus.CLASSIFIED, RunStatus.FAILED, RunStatus.CANCELLED}),
+    RunStatus.CLASSIFIED: frozenset({RunStatus.PLANNING, RunStatus.FAILED, RunStatus.CANCELLED}),
     RunStatus.PLANNING: frozenset(
         {
             RunStatus.AUTHORIZED,
@@ -128,9 +124,7 @@ _RUN_TRANSITIONS: dict[RunStatus, frozenset[RunStatus]] = {
 }
 
 _ACTION_TRANSITIONS: dict[ActionStatus, frozenset[ActionStatus]] = {
-    ActionStatus.PROPOSED: frozenset(
-        {ActionStatus.PREPARED, ActionStatus.CANCELLED}
-    ),
+    ActionStatus.PROPOSED: frozenset({ActionStatus.PREPARED, ActionStatus.CANCELLED}),
     ActionStatus.PREPARED: frozenset(
         {
             ActionStatus.PENDING_APPROVAL,

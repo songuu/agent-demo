@@ -38,6 +38,65 @@ the read/prepare credential reference; commit receives only the business commit
 reference. Retention is a one-shot service and therefore disables the inherited
 API image healthcheck.
 
+## Constrained single-node verification
+
+The existing SPIFFE host can run a bounded development verification profile
+when no production cluster is available. This path preserves the complete local
+service graph but is explicitly not staging, production, HA, or release
+evidence:
+
+```powershell
+pnpm deploy:agent-platform:single-node
+pnpm deploy:agent-platform:single-node -- --apply
+```
+
+The deploy command requires a clean, pushed Git commit, builds the immutable
+application image locally, streams it to the server without a remote tarball,
+and merges `docker-compose.single-node.yml` after the local Compose file.
+Credentials are generated once into a mode-`0600` remote environment file;
+release Git SHA and the loaded Docker image ID are injected and read back by the
+smoke test. The default release ID is `git-<full-sha>` for both manual and
+workflow execution. A first install verifies that exact SHA on the remote
+branch and atomically promotes its temporary clone, so retrying the same pushed
+commit reuses the same release. Because this host has no transactional database
+rollback plan, the script refuses an in-place upgrade to a different release.
+
+All service ports are loopback-only. Authentication is intentionally disabled
+inside this dev profile, so Nginx exposes only the base path, `/health`, and
+`/ready`; every public `/v1/*` route returns `404`. Functional verification runs
+through loopback on the host. The deployer owns and byte-compares a marked
+Nginx block, rejects duplicate routes outside it, and verifies a forged-role
+public `/v1/runs` request returns exactly `404` before switching `current`.
+`/ready` intentionally returns `503` with exactly
+`artifact_malware_scanner=error:policy-fail-closed:structural-only`, because no
+external malware scanner is available. A successful constrained deployment
+therefore means `/health=200`, that exact known readiness block, a completed
+Temporal run, event readback, and Artifact readback. Before switching `current`,
+the deployer also requires Postgres, Redis, Temporal, MinIO, API, Agent, Commit,
+and Outbox to be healthy; OPA and Retention to be running; and MinIO init,
+migration, and webhook-secret init to have exited successfully. It does not mean
+the service is production-ready.
+
+Local service and smoke gates run before the Nginx block is installed. A failed
+first-install gate can leave loopback-only containers for diagnosis, but does
+not switch `current` or expose the API. A later public-verification failure can
+leave only the fail-closed health/readiness/404 Nginx block; `current` remains
+unchanged and `/v1/*` remains denied.
+
+The current MinIO service has no KMS backend and rejects both KMS and SSE-S3
+requests. This override explicitly sets
+`AGENT_ARTIFACT_ALLOW_UNENCRYPTED_LOCAL=true`; configuration validation rejects
+that flag outside `dev` and rejects combining it with any KMS key. Artifact and
+retention-archive objects in this profile consequently have no server-side
+at-rest encryption. This is a known data-protection gap, not a production
+exception. The retention worker remains running and performs its bounded sweep
+once per day.
+
+The profile caps the complete stack at 2 CPUs and 1760 MiB of container memory
+with bounded swap. The deploy preflight and post-start checks refuse hosts below
+the configured disk or memory-plus-swap thresholds. These controls reduce blast
+radius; they do not satisfy the production prerequisites below.
+
 ## Production prerequisites
 
 The cloud foundation must provide all of the following before Helm install:

@@ -67,14 +67,20 @@ def test_tool_search_filters_tenant_task_capability_and_is_stable() -> None:
 
     assert [result.definition.name for result in first] == ["knowledge.search"]
     assert first == second
-    assert index.search(
-        "enterprise knowledge",
-        context.model_copy(update={"task_id": "other-task"}),
-    ) == ()
-    assert index.search(
-        "enterprise knowledge",
-        context.model_copy(update={"allowed_capabilities": frozenset()}),
-    ) == ()
+    assert (
+        index.search(
+            "enterprise knowledge",
+            context.model_copy(update={"task_id": "other-task"}),
+        )
+        == ()
+    )
+    assert (
+        index.search(
+            "enterprise knowledge",
+            context.model_copy(update={"allowed_capabilities": frozenset()}),
+        )
+        == ()
+    )
 
 
 def test_commit_tools_can_never_enter_search_catalog() -> None:

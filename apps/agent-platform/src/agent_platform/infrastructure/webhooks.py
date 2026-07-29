@@ -21,9 +21,7 @@ from uuid import UUID, uuid4
 
 import orjson
 
-type WebhookSender = Callable[
-    [str, bytes, Mapping[str, str]], Awaitable[tuple[int, bytes]]
-]
+type WebhookSender = Callable[[str, bytes, Mapping[str, str]], Awaitable[tuple[int, bytes]]]
 type Sleep = Callable[[float], Awaitable[None]]
 
 _FORBIDDEN_PAYLOAD_KEYS = frozenset(
@@ -192,9 +190,7 @@ class WebhookDispatcher:
         last_error: str | None = None
         for attempt in range(1, self._max_attempts + 1):
             try:
-                last_status, response_body = await self._send(
-                    endpoint.url, body, headers
-                )
+                last_status, response_body = await self._send(endpoint.url, body, headers)
                 last_hash = hashlib.sha256(response_body).hexdigest()
                 if 200 <= last_status < 300:
                     return WebhookDelivery(
@@ -245,8 +241,7 @@ def _signature_message(
 def _contains_forbidden_payload_key(value: object) -> bool:
     if isinstance(value, Mapping):
         return any(
-            str(key).lower() in _FORBIDDEN_PAYLOAD_KEYS
-            or _contains_forbidden_payload_key(item)
+            str(key).lower() in _FORBIDDEN_PAYLOAD_KEYS or _contains_forbidden_payload_key(item)
             for key, item in value.items()
         )
     if isinstance(value, list | tuple):

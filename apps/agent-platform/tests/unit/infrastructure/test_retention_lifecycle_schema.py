@@ -60,10 +60,7 @@ def test_retention_schema_models_cover_policy_hold_retry_and_evidence() -> None:
 
 def test_retention_migration_seeds_architecture_baselines_and_enforces_rls() -> None:
     migration = (
-        PROJECT_ROOT
-        / "migrations"
-        / "versions"
-        / "20260724_0008_retention_lifecycle_expand.py"
+        PROJECT_ROOT / "migrations" / "versions" / "20260724_0008_retention_lifecycle_expand.py"
     ).read_text(encoding="utf-8")
 
     for table in (
@@ -99,11 +96,7 @@ def test_retention_cli_is_real_worker_wiring() -> None:
         PROJECT_ROOT / "src" / "agent_platform" / "infrastructure" / "retention.py"
     ).read_text(encoding="utf-8")
     worker_module = (
-        PROJECT_ROOT
-        / "src"
-        / "agent_platform"
-        / "infrastructure"
-        / "retention_worker.py"
+        PROJECT_ROOT / "src" / "agent_platform" / "infrastructure" / "retention_worker.py"
     ).read_text(encoding="utf-8")
 
     assert "RETENTION_ADAPTER_REQUIRED" not in retention_module

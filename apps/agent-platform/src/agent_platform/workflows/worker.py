@@ -154,7 +154,9 @@ async def run_agent_worker(
         client=client,
         task_queue=settings.temporal_task_queue,
         dependencies=resources.dependencies,
-        build_id=settings.release_git_sha,
+        build_id=(
+            settings.release_git_sha if settings.temporal_worker_versioning_enabled else None
+        ),
         max_concurrent_activities=settings.max_concurrent_activities,
     )
     await _run_with_health(settings, worker, resources)
@@ -169,7 +171,9 @@ async def run_commit_worker(
         client=client,
         task_queue=settings.temporal_commit_task_queue,
         dependencies=resources.dependencies,
-        build_id=settings.release_git_sha,
+        build_id=(
+            settings.release_git_sha if settings.temporal_worker_versioning_enabled else None
+        ),
         max_concurrent_activities=settings.max_concurrent_activities,
     )
     await _run_with_health(settings, worker, resources)

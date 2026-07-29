@@ -146,6 +146,4 @@ class _WorkflowSpy:
         tenant_id: str,
         decision: str,
     ) -> None:
-        raise AssertionError(
-            f"approval should not complete: {action_id=} {tenant_id=} {decision=}"
-        )
+        raise AssertionError(f"approval should not complete: {action_id=} {tenant_id=} {decision=}")
