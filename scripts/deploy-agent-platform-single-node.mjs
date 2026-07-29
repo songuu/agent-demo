@@ -534,11 +534,12 @@ for attempt in $(seq 1 60); do
   sleep 2
 done
 
-python3 "$release/apps/agent-platform/scripts/smoke_single_node_deployment.py" \
-  --base-url "$local_url" \
+compose exec -T agent-api python - \
+  --base-url http://127.0.0.1:8080 \
   --expected-git-sha "$expected_git_sha" \
   --expected-image-digest "$expected_image_digest" \
-  --expect-structural-only-readiness-block
+  --expect-structural-only-readiness-block \
+  < "$release/apps/agent-platform/scripts/smoke_single_node_deployment.py"
 
 if ! all_required_services_ready; then
   compose ps --all

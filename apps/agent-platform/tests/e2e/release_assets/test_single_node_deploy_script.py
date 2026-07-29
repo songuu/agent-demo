@@ -140,9 +140,9 @@ def test_single_node_deploy_script_keeps_security_and_capacity_gates() -> None:
     assert "service_is_healthy" in source
     assert "job_completed_successfully" in source
     assert 'compose ps --all -q "$service"' in source
-    assert source.index(
-        'python3 "$release/apps/agent-platform/scripts/smoke_single_node_deployment.py"'
-    ) < source.index('nginx_begin_marker="# BEGIN managed Agent Platform single-node')
+    assert source.index("compose exec -T agent-api python -") < source.index(
+        'nginx_begin_marker="# BEGIN managed Agent Platform single-node'
+    )
     assert source.index('public_denied_code="$(curl') < source.index(
         'ln -sfn "$release" "$current"'
     )
@@ -202,6 +202,18 @@ def test_single_node_deploy_serializes_heavy_services_and_keeps_ssh_alive() -> N
         < wait_outbox
         < start_retention
     )
+
+
+def test_single_node_deploy_runs_smoke_with_the_pinned_container_python() -> None:
+    rendered = _render_remote_deploy_script()
+
+    assert (
+        'python3 "$release/apps/agent-platform/scripts/smoke_single_node_deployment.py"'
+        not in rendered
+    )
+    assert "compose exec -T agent-api python -" in rendered
+    assert "--base-url http://127.0.0.1:8080" in rendered
+    assert '< "$release/apps/agent-platform/scripts/smoke_single_node_deployment.py"' in rendered
 
 
 def test_rendered_nginx_awk_executes_and_binds_the_exact_domain(
