@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -19,6 +20,8 @@ TERMINAL_FAILURE_STATES = {
     "timed_out",
     "waiting_approval",
 }
+
+_ACCESS_TOKEN = ""
 
 
 def main() -> int:
@@ -37,6 +40,8 @@ def main() -> int:
         action="store_true",
     )
     args = parser.parse_args()
+    global _ACCESS_TOKEN
+    _ACCESS_TOKEN = os.environ.get("AGENT_DEVELOPMENT_CONSOLE_TOKEN", "").strip()
 
     base_url = args.base_url.rstrip("/")
     health = _request_json("GET", f"{base_url}/health")
@@ -263,10 +268,13 @@ def _request(
     parsed = urlsplit(url)
     if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
         raise RuntimeError(f"single-node smoke only permits loopback HTTP targets: {url}")
+    request_headers = dict(headers)
+    if _ACCESS_TOKEN:
+        request_headers.setdefault("Authorization", f"Bearer {_ACCESS_TOKEN}")
     request = Request(  # noqa: S310 - scheme and host are constrained above
         url,
         data=body,
-        headers=headers,
+        headers=request_headers,
         method=method,
     )
     try:

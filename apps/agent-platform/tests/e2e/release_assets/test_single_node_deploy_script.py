@@ -134,6 +134,10 @@ def test_single_node_deploy_script_keeps_security_and_capacity_gates() -> None:
     assert '[ "$attempt" = "$health_attempt_limit" ]' in source
     assert "AGENT_PLATFORM_SINGLE_NODE_POSTGRES_PASSWORD" in source
     assert "AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_PASSWORD" in source
+    assert "AGENT_PLATFORM_SINGLE_NODE_CONSOLE_TOKEN" in source
+    assert '  \' "$env_file"\n}\n\nif ! console_token=' in source
+    assert source.count("printf 'AGENT_PLATFORM_SINGLE_NODE_CONSOLE_TOKEN=%s\\\\n'") == 2
+    assert 'location ^~ " base_path "/v1/ {' in source
     assert 'location ^~ " base_path "/ {' in source
     assert 'print "        return 404;"' in source
     assert "BEGIN managed Agent Platform single-node" in source
@@ -148,7 +152,7 @@ def test_single_node_deploy_script_keeps_security_and_capacity_gates() -> None:
     assert source.index("compose exec -T agent-api python -") < source.index(
         'nginx_begin_marker="# BEGIN managed Agent Platform single-node'
     )
-    assert source.index('public_denied_code="$(curl') < source.rindex(
+    assert source.index('public_unauthorized_code="$(curl') < source.rindex(
         'switch_current_release "$release"'
     )
     assert "if ($dm_authed" not in source
@@ -177,6 +181,7 @@ def test_single_node_nginx_frontend_routes_are_exact_and_precede_the_catch_all()
         'location = " base_path "/ready {"',
         'location = " base_path "/assets/app.css {"',
         'location = " base_path "/assets/app.js {"',
+        'location ^~ " base_path "/v1/ {"',
     )
     catch_all = 'location ^~ " base_path "/ {"'
 
@@ -185,6 +190,9 @@ def test_single_node_nginx_frontend_routes_are_exact_and_precede_the_catch_all()
     assert 'proxy_pass http://127.0.0.1:" port "/ready;"' in template
     assert 'proxy_pass http://127.0.0.1:" port "/assets/app.css;"' in template
     assert 'proxy_pass http://127.0.0.1:" port "/assets/app.js;"' in template
+    assert 'proxy_pass http://127.0.0.1:" port "/v1/;"' in template
+    assert "proxy_set_header Authorization $http_authorization;" in template
+    assert "proxy_request_buffering off;" in template
     assert all(template.index(route) < template.index(catch_all) for route in exact_routes)
     assert 'location ^~ " base_path "/assets/' not in template
 
@@ -261,7 +269,9 @@ def test_rendered_public_identity_gate_waits_for_nginx_and_preserves_json_quotes
     assert rendered.count('<<<"$public_health"') == 2
     assert 'grep -Fq ""release_git_sha"' not in rendered
     assert rendered.index("nginx -s reload") < rendered.index("public_identity_ready=0")
-    assert rendered.index("public_identity_ready=0") < rendered.index('public_denied_code="$(curl')
+    assert rendered.index("public_identity_ready=0") < rendered.index(
+        'public_unauthorized_code="$(curl'
+    )
     assert "public Agent Platform release identity did not converge" in rendered
 
 
@@ -275,14 +285,18 @@ def test_rendered_public_frontend_assets_and_denied_surface_are_verified() -> No
     script_gate = 'assert_public_frontend_asset "assets/app.js" "application/javascript"'
     denied_paths = "for public_denied_path in v1/models openapi.json docs redoc metrics; do"
     ready_gate = 'if [ "$public_ready_code" != "503" ]; then'
+    unauthorized_gate = 'if [ "$public_unauthorized_code" != "401" ]; then'
+    authenticated_gate = 'if [ "$authenticated_capabilities_code" != "200" ]; then'
 
     assert "expected public Agent Platform frontend HTTP 200" in rendered
     assert "text/html*) ;;" in rendered
     assert marker_gate in rendered
     assert css_gate in rendered
     assert script_gate in rendered
-    assert "--header 'X-Agent-Roles: admin'" in rendered
+    assert '--header "Authorization: Bearer $console_token"' in rendered
     assert '"$public_url""v1/runs"' in rendered
+    assert '"$public_url""v1/capabilities"' in rendered
+    assert "--header 'X-Agent-Roles: admin'" not in rendered
     assert denied_paths in rendered
     assert '"$public_url$public_denied_path"' in rendered
     assert '"artifact_malware_scanner":"error:policy-fail-closed:structural-only"' in rendered
@@ -292,6 +306,8 @@ def test_rendered_public_frontend_assets_and_denied_surface_are_verified() -> No
         < rendered.index(marker_gate)
         < rendered.index(css_gate)
         < rendered.index(script_gate)
+        < rendered.index(unauthorized_gate)
+        < rendered.index(authenticated_gate)
         < rendered.index(denied_paths)
         < rendered.index(ready_gate)
     )
@@ -431,7 +447,7 @@ def test_frontend_upgrade_has_parent_blob_env_lock_and_rollback_gates() -> None:
     rollback_cleanup = rendered.index(
         'cleanup_deployment_temporaries\n  if [ "$rollback_failed" != "0" ]'
     )
-    assert rollback_cleanup < rendered.index("frontend-only deployment rollback failed")
+    assert rollback_cleanup < rendered.index("functional-console deployment rollback failed")
 
 
 def test_same_release_retry_does_not_enter_frontend_upgrade_mode() -> None:

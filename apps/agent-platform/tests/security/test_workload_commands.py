@@ -86,6 +86,18 @@ def test_compose_separates_agent_and_commit_worker_processes_and_credentials() -
     assert "AGENT_OPENAI_API_KEY" not in commit_worker
 
 
+def test_single_node_console_token_is_injected_only_into_the_api() -> None:
+    override = (PLATFORM_ROOT / "deploy" / "docker" / "docker-compose.single-node.yml").read_text(
+        encoding="utf-8"
+    )
+    api = override.split("  agent-api:", maxsplit=1)[1].split("  agent-worker:", maxsplit=1)[0]
+    workers = override.split("  agent-worker:", maxsplit=1)[1]
+
+    assert "AGENT_DEVELOPMENT_CONSOLE_TOKEN" in api
+    assert "AGENT_PLATFORM_SINGLE_NODE_CONSOLE_TOKEN is required" in api
+    assert "AGENT_DEVELOPMENT_CONSOLE_TOKEN" not in workers
+
+
 def test_compose_has_isolated_outbox_and_retention_processes() -> None:
     compose = (PLATFORM_ROOT / "deploy" / "docker" / "docker-compose.yml").read_text(
         encoding="utf-8"

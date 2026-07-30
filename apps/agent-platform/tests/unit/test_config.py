@@ -57,6 +57,32 @@ def test_test_environment_can_use_explicit_ephemeral_backends() -> None:
     assert "test:test" not in repr(settings)
 
 
+def test_development_console_token_is_long_dev_only_and_requires_disabled_auth() -> None:
+    token = SecretStr("d" * 32)
+    settings = Settings(
+        environment="dev",
+        auth_disabled=True,
+        development_console_token=token,
+    )
+
+    assert settings.development_console_token.get_secret_value() == "d" * 32
+
+    with pytest.raises(ValidationError, match="DEVELOPMENT_CONSOLE_TOKEN_TOO_SHORT"):
+        Settings(
+            environment="dev", auth_disabled=True, development_console_token=SecretStr("short")
+        )
+    with pytest.raises(
+        ValidationError,
+        match="DEVELOPMENT_CONSOLE_TOKEN_REQUIRES_DISABLED_AUTH",
+    ):
+        Settings(environment="dev", auth_disabled=False, development_console_token=token)
+    with pytest.raises(
+        ValidationError,
+        match="DEVELOPMENT_CONSOLE_TOKEN_ENVIRONMENT_FORBIDDEN",
+    ):
+        Settings(environment="staging", auth_disabled=True, development_console_token=token)
+
+
 def test_production_rejects_insecure_backends_and_missing_identity_contract() -> None:
     with pytest.raises(ValidationError) as caught:
         Settings(

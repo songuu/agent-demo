@@ -9,6 +9,7 @@ import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
+from pydantic import SecretStr
 
 from agent_platform.api import auth as auth_module
 from agent_platform.api.auth import (
@@ -104,6 +105,34 @@ async def test_development_identity_is_header_bound_and_forbidden_outside_test()
         await JwtAuthenticator(_settings(auth_disabled=True, environment="prod")).authenticate(
             _request()
         )
+
+
+@pytest.mark.asyncio
+async def test_development_console_token_is_required_when_configured() -> None:
+    authenticator = JwtAuthenticator(
+        _settings(
+            auth_disabled=True,
+            development_console_token=SecretStr("development-console-token-with-at-least-32-bytes"),
+        )
+    )
+
+    with pytest.raises(Unauthenticated, match="console token"):
+        await authenticator.authenticate(_request())
+    with pytest.raises(Unauthenticated, match="console token"):
+        await authenticator.authenticate(
+            _request(headers={"authorization": "Bearer incorrect-token"})
+        )
+
+    principal = await authenticator.authenticate(
+        _request(
+            headers={"authorization": ("Bearer development-console-token-with-at-least-32-bytes")}
+        )
+    )
+
+    assert principal.user_id == "single-node-console"
+    assert principal.tenant_id == "single-node"
+    assert principal.roles == frozenset({"admin", "approver"})
+    assert principal.auth_strength == "mfa"
 
 
 @pytest.mark.asyncio

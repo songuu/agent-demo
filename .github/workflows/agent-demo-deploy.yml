@@ -322,8 +322,13 @@ jobs:
           echo "${ready_body}" | \
             grep -Fq '"artifact_malware_scanner":"error:policy-fail-closed:structural-only"'
 
+          unauthorized_code="$(curl --silent --show-error --output /dev/null \
+            --write-out '%{http_code}' \
+            "${public_base_url}/v1/runs")"
+          echo "public ${public_base_url}/v1/runs -> ${unauthorized_code}"
+          test "${unauthorized_code}" = "401"
+
           for denied_path in \
-            "/v1/runs" \
             "/v1/models" \
             "/openapi.json" \
             "/docs" \
@@ -331,7 +336,6 @@ jobs:
             "/metrics"; do
             denied_code="$(curl --silent --show-error --output /dev/null \
               --write-out '%{http_code}' \
-              --header 'X-Agent-Roles: admin' \
               "${public_base_url}${denied_path}")"
             echo "public ${public_base_url}${denied_path} -> ${denied_code}"
             test "${denied_code}" = "404"

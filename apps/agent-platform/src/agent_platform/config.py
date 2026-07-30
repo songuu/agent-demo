@@ -143,6 +143,7 @@ class Settings(BaseSettings):
     store_model_content: bool = False
 
     auth_disabled: bool = False
+    development_console_token: SecretStr = SecretStr("")
     jwt_issuer: str | None = None
     jwt_audience: str | None = None
     jwt_jwks_url: str | None = None
@@ -367,6 +368,13 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def enforce_production_boundaries(self) -> Settings:
         violations: list[str] = []
+        console_token = self.development_console_token.get_secret_value().strip()
+        if console_token and len(console_token) < 32:
+            violations.append("DEVELOPMENT_CONSOLE_TOKEN_TOO_SHORT")
+        if console_token and self.environment not in {"dev", "test"}:
+            violations.append("DEVELOPMENT_CONSOLE_TOKEN_ENVIRONMENT_FORBIDDEN")
+        if console_token and not self.auth_disabled:
+            violations.append("DEVELOPMENT_CONSOLE_TOKEN_REQUIRES_DISABLED_AUTH")
         fault_harness_url_configured = self.eval_fault_harness_url is not None
         fault_harness_token_configured = bool(
             self.eval_fault_harness_token.get_secret_value().strip()

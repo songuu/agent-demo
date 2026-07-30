@@ -265,7 +265,7 @@ fi
 if [ "$upgrade_required" = "1" ]; then
   release_parent_count="$(git -C "$release" rev-list --parents -n 1 HEAD | awk '{ print NF - 1 }')"
   if [ "$release_parent_count" != "1" ]; then
-    echo "frontend-only upgrade requires a new release with exactly one parent" >&2
+    echo "functional-console upgrade requires a new release with exactly one parent" >&2
     exit 78
   fi
   release_parent_git_sha="$(git -C "$release" rev-parse HEAD^)"
@@ -314,7 +314,7 @@ base_compose="$release/apps/agent-platform/deploy/docker/docker-compose.yml"
 override_compose="$release/apps/agent-platform/deploy/docker/docker-compose.single-node.yml"
 
 if ! command -v flock >/dev/null; then
-  echo "frontend-only deployment requires flock" >&2
+  echo "functional-console deployment requires flock" >&2
   exit 78
 fi
 install -d -m 0700 "$state_dir"
@@ -365,7 +365,7 @@ if [ -L "$current" ]; then
     upgrade_required=1
     release_parent_count="$(git -C "$release" rev-list --parents -n 1 HEAD | awk '{ print NF - 1 }')"
     if [ "$release_parent_count" != "1" ]; then
-      echo "frontend-only upgrade requires a new release with exactly one parent" >&2
+      echo "functional-console upgrade requires a new release with exactly one parent" >&2
       exit 78
     fi
     release_parent_git_sha="$(git -C "$release" rev-parse HEAD^)"
@@ -394,11 +394,12 @@ require_free_disk post_image_load 1700000000
 
 install -d -m 0700 "$state_dir"
 if [ "$upgrade_required" = "1" ] && [ ! -s "$secret_env_file" ]; then
-  echo "frontend-only upgrade requires the existing single-node secret env" >&2
+  echo "functional-console upgrade requires the existing single-node secret env" >&2
   exit 78
 fi
 if [ ! -s "$secret_env_file" ]; then
   postgres_password="$(openssl rand -hex 24)"
+  console_token="$(openssl rand -hex 32)"
   minio_password="$(openssl rand -hex 32)"
   quota_hmac_secret="$(openssl rand -base64 32 | tr -d '\\n')"
   {
@@ -407,6 +408,7 @@ if [ ! -s "$secret_env_file" ]; then
     printf 'AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_USER=%s\\n' 'agent-platform'
     printf 'AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_PASSWORD=%s\\n' "$minio_password"
     printf 'AGENT_PLATFORM_SINGLE_NODE_QUOTA_HMAC_SECRET=%s\\n' "$quota_hmac_secret"
+    printf 'AGENT_PLATFORM_SINGLE_NODE_CONSOLE_TOKEN=%s\\n' "$console_token"
   } > "$secret_env_file"
   chmod 0600 "$secret_env_file"
 fi
@@ -433,16 +435,30 @@ read_release_env_value() {
   ' "$env_file"
 }
 
+if ! console_token="$(read_release_env_value "$secret_env_file" AGENT_PLATFORM_SINGLE_NODE_CONSOLE_TOKEN)"; then
+  if grep -q '^AGENT_PLATFORM_SINGLE_NODE_CONSOLE_TOKEN=' "$secret_env_file"; then
+    echo "single-node console token entry is invalid" >&2
+    exit 78
+  fi
+  console_token="$(openssl rand -hex 32)"
+  printf 'AGENT_PLATFORM_SINGLE_NODE_CONSOLE_TOKEN=%s\\n' "$console_token" >> "$secret_env_file"
+  chmod 0600 "$secret_env_file"
+fi
+if [ "\${#console_token}" -lt 32 ]; then
+  echo "single-node console token must contain at least 32 characters" >&2
+  exit 78
+fi
+
 if [ "$upgrade_required" = "1" ]; then
   previous_release_env_file="$previous_release/.agent-platform-release.env"
   previous_base_compose="$previous_release/apps/agent-platform/deploy/docker/docker-compose.yml"
   previous_override_compose="$previous_release/apps/agent-platform/deploy/docker/docker-compose.single-node.yml"
   if [ ! -s "$previous_release_env_file" ]; then
-    echo "frontend-only upgrade requires previous release env: $previous_release_env_file" >&2
+    echo "functional-console upgrade requires previous release env: $previous_release_env_file" >&2
     exit 78
   fi
   if [ ! -f "$previous_base_compose" ] || [ ! -f "$previous_override_compose" ]; then
-    echo "frontend-only upgrade requires previous release compose files" >&2
+    echo "functional-console upgrade requires previous release compose files" >&2
     exit 78
   fi
   if ! previous_image="$(read_release_env_value "$previous_release_env_file" AGENT_PLATFORM_IMAGE)" ||
@@ -568,6 +584,9 @@ if [ "$upgrade_required" = "1" ]; then
     $0 == "apps/agent-platform/src/agent_platform/api/app.py" { next; }
     $0 == "apps/agent-platform/src/agent_platform/api/frontend_assets.py" { next; }
     index($0, "apps/agent-platform/src/agent_platform/api/frontend/") == 1 { next; }
+    $0 == "apps/agent-platform/deploy/docker/docker-compose.single-node.yml" { next; }
+    $0 == "apps/agent-platform/src/agent_platform/api/auth.py" { next; }
+    $0 == "apps/agent-platform/src/agent_platform/config.py" { next; }
     {
       print "incompatible runtime/build input changed: " $0 > "/dev/stderr";
       incompatible = 1;
@@ -578,7 +597,7 @@ if [ "$upgrade_required" = "1" ]; then
       }
     }
   ' "$runtime_changed_paths"; then
-    echo "single-node upgrade refused: only the Agent Platform frontend surface may differ" >&2
+    echo "single-node upgrade refused: change exceeds the bounded functional-console surface" >&2
     exit 78
   fi
   cleanup_runtime_compatibility
@@ -604,7 +623,7 @@ compose() {
 
 previous_compose() {
   if [ "$upgrade_required" != "1" ]; then
-    echo "previous compose requested outside a frontend-only upgrade" >&2
+    echo "previous compose requested outside a functional-console upgrade" >&2
     return 78
   fi
   docker compose \\
@@ -679,7 +698,7 @@ deployment_exit_handler() {
   fi
 
   set +e
-  echo "frontend-only deployment failed; restoring previous release $previous_release" >&2
+  echo "functional-console deployment failed; restoring previous release $previous_release" >&2
   rollback_failed=0
   if [ -n "$backup" ] && [ -f "$backup" ]; then
     cp "$backup" "$nginx_config"
@@ -747,10 +766,10 @@ deployment_exit_handler() {
   fi
   cleanup_deployment_temporaries
   if [ "$rollback_failed" != "0" ]; then
-    echo "frontend-only deployment rollback failed" >&2
+    echo "functional-console deployment rollback failed" >&2
     exit 83
   fi
-  echo "frontend-only deployment rollback restored git=$previous_git_sha digest=$previous_image_digest" >&2
+  echo "functional-console deployment rollback restored git=$previous_git_sha digest=$previous_image_digest" >&2
   exit "$deployment_exit_code"
 }
 
@@ -1027,6 +1046,18 @@ awk -v base_path="$base_path" -v port="$port" '
     print "        proxy_set_header X-Real-IP $remote_addr;";
     print "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;";
     print "        proxy_set_header X-Forwarded-Proto $scheme;";
+    print "    }";
+    print "";
+    print "    location ^~ " base_path "/v1/ {";
+    print "        proxy_pass http://127.0.0.1:" port "/v1/;";
+    print "        proxy_set_header Host $host;";
+    print "        proxy_set_header X-Real-IP $remote_addr;";
+    print "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;";
+    print "        proxy_set_header X-Forwarded-Proto $scheme;";
+    print "        proxy_set_header Authorization $http_authorization;";
+    print "        proxy_buffering off;";
+    print "        proxy_request_buffering off;";
+    print "        proxy_read_timeout 70s;";
     print "    }";
     print "";
     print "    location ^~ " base_path "/ {";
@@ -1469,26 +1500,37 @@ assert_public_frontend_asset() {
 assert_public_frontend_asset "assets/app.css" "text/css"
 assert_public_frontend_asset "assets/app.js" "application/javascript"
 
-public_denied_code="$(curl --silent --show-error \
+public_unauthorized_code="$(curl --silent --show-error \
   --connect-timeout 5 \
   --max-time 15 \
   --output /dev/null \
   --write-out '%{http_code}' \
-  --header 'X-Agent-Roles: admin' \
   "$public_url""v1/runs")"
-if [ "$public_denied_code" != "404" ]; then
-  echo "expected public Agent Platform API denial HTTP 404, got $public_denied_code" >&2
+if [ "$public_unauthorized_code" != "401" ]; then
+  echo "expected anonymous Agent Platform API HTTP 401, got $public_unauthorized_code" >&2
+  exit 81
+fi
+authenticated_capabilities_code="$(curl --silent --show-error \
+  --connect-timeout 5 \
+  --max-time 15 \
+  --output "$public_validation_body" \
+  --write-out '%{http_code}' \
+  --header "Authorization: Bearer $console_token" \
+  "$public_url""v1/capabilities")"
+if [ "$authenticated_capabilities_code" != "200" ]; then
+  cat "$public_validation_body" >&2
+  echo "expected token-authenticated Agent Platform capabilities HTTP 200, got $authenticated_capabilities_code" >&2
   exit 81
 fi
 for public_denied_path in v1/models openapi.json docs redoc metrics; do
-  public_denied_code="$(curl --silent --show-error \
+  public_unexposed_code="$(curl --silent --show-error \
     --connect-timeout 5 \
     --max-time 15 \
     --output /dev/null \
     --write-out '%{http_code}' \
     "$public_url$public_denied_path")"
-  if [ "$public_denied_code" != "404" ]; then
-    echo "expected public Agent Platform denial for $public_denied_path HTTP 404, got $public_denied_code" >&2
+  if [ "$public_unexposed_code" != "404" ]; then
+    echo "expected public Agent Platform denial for $public_denied_path HTTP 404, got $public_unexposed_code" >&2
     exit 81
   fi
 done

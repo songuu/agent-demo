@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import time
 from dataclasses import dataclass
 from typing import Any, cast
@@ -34,6 +35,18 @@ class JwtAuthenticator:
         if self._settings.auth_disabled:
             if self._settings.environment not in {"dev", "test"}:
                 raise Unauthenticated("Header identity is disabled outside dev/test")
+            console_token = self._development_console_token()
+            if console_token:
+                authorization = request.headers.get("authorization", "")
+                provided = (
+                    authorization.removeprefix("Bearer ").strip()
+                    if authorization.startswith("Bearer ")
+                    else ""
+                )
+                if not hmac.compare_digest(provided, console_token):
+                    raise Unauthenticated("Development console token validation failed")
+                request.state.authenticated_data_scope = None
+                return self._development_console_principal()
             request.state.authenticated_data_scope = None
             return self._development_principal(request)
 
@@ -59,6 +72,41 @@ class JwtAuthenticator:
         principal, data_scope = self._claims_to_principal_and_scope(claims)
         request.state.authenticated_data_scope = data_scope
         return principal
+
+    def _development_console_token(self) -> str:
+        configured = getattr(self._settings, "development_console_token", None)
+        if configured is None:
+            return ""
+        get_secret_value = getattr(configured, "get_secret_value", None)
+        value = get_secret_value() if callable(get_secret_value) else str(configured)
+        return value.strip()
+
+    @staticmethod
+    def _development_console_principal() -> Principal:
+        return Principal(
+            user_id="single-node-console",
+            tenant_id="single-node",
+            roles=frozenset({"admin", "approver"}),
+            scopes=frozenset(
+                {
+                    "runs:create",
+                    "runs:read",
+                    "runs:control",
+                    "actions:approve",
+                    "actions:recover",
+                    "artifact:read",
+                    "artifact:write",
+                    "memory:read",
+                    "memory:write",
+                    "audit:read",
+                    "admin:capabilities",
+                    "admin:kill-switch",
+                    "admin:webhooks",
+                }
+            ),
+            auth_strength="mfa",
+            session_id="single-node-console",
+        )
 
     def _development_principal(self, request: Request) -> Principal:
         tenant_id = request.headers.get("x-agent-tenant", "test-tenant")

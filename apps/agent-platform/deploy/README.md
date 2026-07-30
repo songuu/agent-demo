@@ -59,46 +59,62 @@ smoke test. The default release ID is `git-<full-sha>` for both manual and
 workflow execution. A first install verifies that exact SHA on the remote
 branch and atomically promotes its temporary clone, so retrying the same pushed
 commit reuses the same release. General upgrades remain refused because this
-host has no transactional database rollback plan. The only exception is a
-direct-parent frontend-only promotion: the deployer locks the state directory,
-compares Git blob-and-mode manifests for every Docker/runtime input, permits
-changes only in the reviewed frontend route seam and assets, and requires the
-previous release env, image digest, image, and Compose configuration to remain
-available. Any service, smoke, Nginx, public identity, asset, security-header,
-or readiness failure restores the previous Nginx and app/worker containers;
-`current` is switched atomically only after every gate passes. Database
-migrations are never downgraded during rollback, so any migration, dependency,
-policy, Compose, or non-frontend runtime change still fails closed.
+host has no transactional database
+rollback plan. The reviewed exception is a direct-parent functional-console
+promotion: the deployer locks the state directory, compares Git blob-and-mode
+manifests for every Docker/runtime input, and permits only the frontend route
+seam/assets plus the single-node authentication, configuration, and Compose
+override required by the console. `app.py` remains protected by its exact
+parent/new blob gate. Migration, dependency, policy, base Compose, or unrelated
+runtime changes still fail closed. The previous release env, image digest,
+image, and Compose configuration must remain available, and any service, smoke,
+Nginx, authenticated API, asset, security-header, or readiness failure restores
+the previous Nginx and app/worker containers. Database migrations are never
+downgraded during rollback.
 
-All service ports are loopback-only. Authentication is intentionally disabled
-inside this dev profile, so Nginx exposes only the read-only root page, the exact
-`/assets/app.css` and `/assets/app.js` resources, `/health`, and `/ready`.
-Every other public route, including `/v1/*`, OpenAPI, docs, and metrics, returns
-`404`. The page polls `/health` and `/ready` once per minute; those anonymous
-requests share the bounded pre-auth quota in this development profile, so this
-surface is not a high-concurrency production dashboard. Functional verification
-runs through loopback on the host. The deployer
-owns and byte-compares a marked Nginx block, migrates only the previous exact
-managed template, rejects unknown drift or duplicate routes outside it, and
-keeps a restorable backup through `nginx -t`. Before switching `current`, it
-verifies the HTML shell marker and content type, both asset content types, and
-that forged-role business/API discovery requests still return exactly `404`.
-`/ready` intentionally returns `503` with exactly
+All service ports remain loopback-only. The dev profile still uses its bounded
+`auth_disabled` implementation internally, but the deployer now generates a
+random operator token in the mode-`0600` remote file
+`/opt/agent-demo/agent-platform/state/single-node.secrets.env` under
+`AGENT_PLATFORM_SINGLE_NODE_CONSOLE_TOKEN`. The token is injected only into
+`agent-api`; worker containers do not receive it. An authorized server operator
+retrieves that value over the existing SSH administration channel and enters it
+in the console. The browser keeps it only in the password field for the current
+page lifetime and clears it on `pagehide`; it is not written to local or session
+storage.
+
+Nginx exposes the root page, the exact frontend assets, `/health`, `/ready`, and
+the same-origin `/v1/` API. Anonymous `/v1/*` requests return `401`, and forged
+`X-Agent-*` identity headers cannot replace the bearer token. OpenAPI, docs,
+model discovery, metrics, and other non-allowlisted paths remain `404`. The
+functional console connects runs and run control, approvals, capability
+switches, Artifact upload/read/download/delete, governed memory, audit export,
+Kill Switches, and Webhooks to those real endpoints. Each endpoint still applies
+its server-side tenant, scope, step-up, policy, and data-classification checks;
+Action recovery continues to require phishing-resistant authentication and is
+therefore intentionally unavailable to the single-node MFA token.
+
+The deployer owns and byte-compares the marked Nginx block, migrates only the
+previous exact managed template, rejects unknown drift or duplicate routes
+outside it, and keeps a restorable backup through `nginx -t`. Before switching
+`current`, it verifies the HTML console marker and content type, both asset
+content types, anonymous API `401`, authenticated capability readback `200`,
+non-exposed path `404`, and the constrained readiness response. `/ready`
+intentionally returns `503` with exactly
 `artifact_malware_scanner=error:policy-fail-closed:structural-only`, because no
 external malware scanner is available. A successful constrained deployment
-therefore means the frontend and exact assets are reachable, `/health=200`, the
-known readiness block is preserved, and the Temporal run, event readback, and
-Artifact readback completed. The deployer also requires Postgres, Redis,
-Temporal, MinIO, API, Agent, Commit, and Outbox to be healthy; OPA and Retention
-to be running; and MinIO init, migration, and webhook-secret init to have exited
-successfully. It does not mean the service is production-ready.
+therefore proves the functional console and its authenticated API edge are
+reachable, `/health=200`, the known readiness block is preserved, and the
+Temporal run/event plus Artifact readback smoke completed. It also requires
+Postgres, Redis, Temporal, MinIO, API, Agent, Commit, and Outbox to be healthy;
+OPA and Retention to be running; and MinIO init, migration, and webhook-secret
+init to have exited successfully. It does not mean the service is
+production-ready or highly available.
 
 Local service and smoke gates run before the Nginx block is installed. A failed
 first-install gate can leave loopback-only containers for diagnosis, but does
-not switch `current` or expose the API. A later public-verification failure can
-leave only the fail-closed read-only frontend/health/readiness/404 Nginx block;
-`current` remains unchanged and all non-allowlisted paths remain denied.
-
+not switch `current` or expose the candidate publicly. A later public gate
+failure remains unpromoted and uses the bounded rollback path described above.
 The current MinIO service has no KMS backend and rejects both KMS and SSE-S3
 requests. This override explicitly sets
 `AGENT_ARTIFACT_ALLOW_UNENCRYPTED_LOCAL=true`; configuration validation rejects

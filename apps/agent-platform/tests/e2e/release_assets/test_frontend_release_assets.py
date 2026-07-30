@@ -20,6 +20,7 @@ def test_frontend_assets_are_local_responsive_and_status_driven() -> None:
     html = index.read_text(encoding="utf-8")
     css = stylesheet.read_text(encoding="utf-8")
     javascript = script.read_text(encoding="utf-8")
+    assert 'data-agent-platform-console="v1"' in html
 
     assert 'data-agent-platform-shell="v1"' in html
     assert 'href="assets/app.css"' in html
@@ -36,10 +37,14 @@ def test_frontend_assets_are_local_responsive_and_status_driven() -> None:
     assert "prefers-reduced-motion" in css
     assert 'new URL("health", window.location.href)' in javascript
     assert 'new URL("ready", window.location.href)' in javascript
-    assert "/v1/" not in javascript
+    assert 'new URL("v1/runs", window.location.href)' in javascript
+    assert 'new URL("v1/capabilities", window.location.href)' in javascript
+    assert "Authorization" in javascript
+    assert "localStorage" not in javascript
+    assert "sessionStorage" not in javascript
 
 
-def test_single_node_release_routes_the_frontend_without_exposing_business_apis() -> None:
+def test_single_node_release_routes_the_token_gated_functional_console() -> None:
     deploy_source = DEPLOY_SCRIPT.read_text(encoding="utf-8")
     workflow_source = WORKFLOW.read_text(encoding="utf-8")
 
@@ -49,12 +54,16 @@ def test_single_node_release_routes_the_frontend_without_exposing_business_apis(
     catch_all = 'location ^~ " base_path "/ {'
 
     assert frontend_proxy in deploy_source
+    api_route = 'location ^~ " base_path "/v1/ {'
     assert css_route in deploy_source
     assert script_route in deploy_source
     assert deploy_source.index(css_route) < deploy_source.index(catch_all)
     assert deploy_source.index(script_route) < deploy_source.index(catch_all)
     assert 'data-agent-platform-shell="v1"' in deploy_source
     assert "expected public Agent Platform frontend HTML" in deploy_source
+    assert deploy_source.index(api_route) < deploy_source.index(catch_all)
+    assert "proxy_set_header Authorization $http_authorization" in deploy_source
+    assert "AGENT_PLATFORM_SINGLE_NODE_CONSOLE_TOKEN" in deploy_source
     assert 'data-agent-platform-shell="v1"' in workflow_source
     assert "text/html" in workflow_source
     assert "content-security-policy" in workflow_source
@@ -64,5 +73,5 @@ def test_single_node_release_routes_the_frontend_without_exposing_business_apis(
     assert "cache-control" in workflow_source
     assert "/agent-demo/agent-platform/assets/app.css" in workflow_source
     assert "/agent-demo/agent-platform/assets/app.js" in workflow_source
-    assert "--header 'X-Agent-Roles: admin'" in workflow_source
-    assert 'test "${denied_code}" = "404"' in workflow_source
+    assert 'test "${unauthorized_code}" = "401"' in workflow_source
+    assert "--header 'X-Agent-Roles: admin'" not in workflow_source

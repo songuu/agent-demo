@@ -18,6 +18,7 @@ REQUIRED_ENV = {
     "AGENT_PLATFORM_IMAGE": "registry.invalid/agent-platform:test-single-node",
     "AGENT_PLATFORM_RELEASE_GIT_SHA": TEST_GIT_SHA,
     "AGENT_PLATFORM_RELEASE_IMAGE_DIGEST": TEST_IMAGE_DIGEST,
+    "AGENT_PLATFORM_SINGLE_NODE_CONSOLE_TOKEN": "test-console-token-0000000000000000000000000000",
     "AGENT_PLATFORM_SINGLE_NODE_POSTGRES_USER": "single_node_db_user",
     "AGENT_PLATFORM_SINGLE_NODE_POSTGRES_PASSWORD": "test-postgres-password",
     "AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_USER": "test-minio-access-key",
@@ -107,6 +108,7 @@ def _normalized_ports(service: dict[str, Any]) -> list[tuple[str, str, int]]:
 
 def test_single_node_compose_requires_external_credentials() -> None:
     for variable in (
+        "AGENT_PLATFORM_SINGLE_NODE_CONSOLE_TOKEN",
         "AGENT_PLATFORM_SINGLE_NODE_POSTGRES_USER",
         "AGENT_PLATFORM_SINGLE_NODE_POSTGRES_PASSWORD",
         "AGENT_PLATFORM_SINGLE_NODE_MINIO_ROOT_USER",
@@ -152,6 +154,13 @@ def test_single_node_compose_is_complete_local_only_and_image_driven() -> None:
 
     assert services["agent-api"]["environment"]["AGENT_ENVIRONMENT"] == "dev"
     assert services["agent-api"]["environment"]["AGENT_AUTH_DISABLED"] == "true"
+    assert (
+        services["agent-api"]["environment"]["AGENT_DEVELOPMENT_CONSOLE_TOKEN"]
+        == REQUIRED_ENV["AGENT_PLATFORM_SINGLE_NODE_CONSOLE_TOKEN"]
+    )
+    for service_name, service in services.items():
+        if service_name != "agent-api":
+            assert "AGENT_DEVELOPMENT_CONSOLE_TOKEN" not in service.get("environment", {})
 
     default_image_config = json.loads(
         _compose_config(env=_compose_env(AGENT_PLATFORM_IMAGE=None)).stdout

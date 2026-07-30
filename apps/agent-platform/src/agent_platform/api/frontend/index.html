@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" data-agent-platform-shell="v1">
+<html lang="zh-CN" data-agent-platform-shell="v1" data-agent-platform-console="v1">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#07111f">
     <meta
       name="description"
-      content="GPT-5.6 Agent Platform 受约束单节点环境的只读运行概览。"
+      content="GPT-5.6 Agent Platform 受治理运行、审批、制品、记忆与安全控制台。"
     >
     <title>GPT-5.6 Agent Platform</title>
     <link rel="stylesheet" href="assets/app.css">
@@ -32,6 +32,7 @@
         <a href="#status">运行状态</a>
         <a href="#architecture">执行架构</a>
         <a href="#capabilities">平台能力</a>
+        <a href="#workspace">功能控制台</a>
         <a href="#guardrails">安全边界</a>
       </nav>
       <div class="environment-chip">
@@ -51,7 +52,7 @@
             Prepare / Approve / Commit / Verify 事务边界内。
           </p>
           <div class="hero-actions">
-            <a class="button button-primary" href="#status">查看实时状态</a>
+            <a class="button button-primary" href="#workspace">进入功能控制台</a>
             <a class="button button-secondary" href="health">健康检查 JSON</a>
           </div>
           <dl class="hero-facts" aria-label="平台核心属性">
@@ -117,6 +118,74 @@
         </div>
       </section>
 
+      <section class="console-section section-shell" id="workspace" data-agent-platform-console="v1">
+        <div class="section-heading"><div><p class="eyebrow">GOVERNED OPERATIONS</p><h2>功能控制台</h2></div><p>所有操作直接调用当前发布的同源 API；令牌只保留在当前页面内存中。</p></div>
+        <div class="console-access-card">
+          <div class="console-access-copy"><span class="console-access-icon" aria-hidden="true">ID</span><div><strong>连接受治理 API</strong><p>单节点环境请输入服务器生成的 operator token；企业环境请输入短期 JWT。</p></div></div>
+          <label class="field console-token-field" for="console-token"><span>访问令牌</span><input id="console-token" type="password" autocomplete="off" spellcheck="false" placeholder="Bearer token（本地无门禁时可留空）"></label>
+          <button class="button button-primary" id="connect-console" type="button">连接并加载</button>
+          <span class="connection-state is-idle" id="console-connection-state" role="status">尚未连接</span>
+        </div>
+        <div class="console-feedback" id="console-feedback" role="status" aria-live="polite" hidden></div>
+        <div class="console-layout">
+          <nav class="console-tabs" aria-label="功能模块">
+            <button class="console-tab is-active" type="button" data-console-tab="runs" aria-controls="panel-runs" aria-selected="true">运行</button>
+            <button class="console-tab" type="button" data-console-tab="actions" aria-controls="panel-actions" aria-selected="false">审批</button>
+            <button class="console-tab" type="button" data-console-tab="capabilities" aria-controls="panel-capabilities" aria-selected="false">能力</button>
+            <button class="console-tab" type="button" data-console-tab="artifacts" aria-controls="panel-artifacts" aria-selected="false">制品</button>
+            <button class="console-tab" type="button" data-console-tab="memories" aria-controls="panel-memories" aria-selected="false">记忆</button>
+            <button class="console-tab" type="button" data-console-tab="governance" aria-controls="panel-governance" aria-selected="false">治理</button>
+          </nav>
+          <div class="console-panels">
+            <section class="console-panel" id="panel-runs" data-console-panel="runs">
+              <div class="panel-heading"><div><p>RUNS</p><h3>创建与控制运行</h3></div><button class="text-button" id="refresh-run" type="button">刷新当前运行</button></div>
+              <div class="console-split">
+                <form class="console-form" id="run-create-form">
+                  <label class="field field-wide"><span>目标</span><textarea id="run-goal" required maxlength="10000" rows="4" placeholder="描述需要 Agent 完成的可验证目标"></textarea></label>
+                  <label class="field field-wide"><span>成功标准</span><input id="run-criterion" required maxlength="2000" value="结果满足目标，并提供可验证证据"></label>
+                  <label class="field field-wide"><span>允许能力（逗号分隔）</span><input id="run-capabilities" required value="knowledge.search"></label>
+                  <label class="field"><span>最大成本 USD</span><input id="run-max-cost" type="number" min="0.000001" step="0.01" value="1.00" required></label>
+                  <label class="field"><span>最长秒数</span><input id="run-max-duration" type="number" min="5" max="86400" value="300" required></label>
+                  <label class="field"><span>工具调用上限</span><input id="run-max-tools" type="number" min="0" max="10000" value="20" required></label>
+                  <label class="field"><span>外部写策略</span><select id="run-write-policy"><option value="deny">deny</option><option value="prepare_only">prepare_only</option><option value="approval">approval</option></select></label>
+                  <label class="field field-wide"><span>输出格式</span><input id="run-output-format" value="application/json" required></label>
+                  <button class="button button-primary" type="submit">创建运行</button>
+                </form>
+                <div class="console-inspector">
+                  <form class="inline-form" id="run-lookup-form"><label class="field"><span>Run ID</span><input id="run-id-input" autocomplete="off" placeholder="UUID" required></label><button class="button button-secondary" type="submit">加载</button></form>
+                  <div class="empty-state" id="run-view">尚未选择运行。</div>
+                  <label class="field field-wide"><span>控制原因</span><input id="run-control-reason" maxlength="1000" value="Operator requested from governed console"></label>
+                  <div class="button-row"><button class="button button-secondary" id="pause-run" type="button">暂停</button><button class="button button-secondary" id="resume-run" type="button">恢复</button><button class="button button-danger" id="cancel-run" type="button">取消</button><button class="button button-secondary" id="export-audit" type="button">导出审计</button></div>
+                </div>
+              </div>
+            </section>
+            <section class="console-panel" id="panel-actions" data-console-panel="actions" hidden><div class="panel-heading"><div><p>ACTIONS</p><h3>审批与恢复</h3></div><button class="text-button" id="refresh-actions" type="button">刷新审批</button></div><p class="panel-note">审批绑定服务端 payload hash；恢复仍受 phishing-resistant 身份门禁。</p><div class="record-list" id="actions-list"><div class="empty-state">加载运行后查看 ActionProposal。</div></div></section>
+            <section class="console-panel" id="panel-capabilities" data-console-panel="capabilities" hidden>
+              <div class="panel-heading"><div><p>CAPABILITIES</p><h3>能力目录与开关</h3></div><button class="text-button" id="refresh-capabilities" type="button">刷新能力</button></div>
+              <form class="inline-form capability-operation" id="capability-operation-form"><label class="field"><span>能力名称</span><input id="capability-name" placeholder="knowledge.search" required></label><label class="field"><span>变更原因</span><input id="capability-reason" maxlength="1000" value="Operator change from governed console" required></label><select id="capability-operation" aria-label="能力操作"><option value="enable">启用</option><option value="disable">禁用</option></select><button class="button button-secondary" type="submit">执行</button></form>
+              <div class="record-list compact-records" id="capabilities-list"><div class="empty-state">连接后加载已启用能力。</div></div>
+            </section>
+            <section class="console-panel" id="panel-artifacts" data-console-panel="artifacts" hidden>
+              <div class="panel-heading"><div><p>ARTIFACTS</p><h3>上传、校验与下载制品</h3></div></div>
+              <div class="console-split"><form class="console-form" id="artifact-upload-form">
+                <label class="field field-wide"><span>文件</span><input id="artifact-file" type="file" required></label><label class="field"><span>关联 Run ID</span><input id="artifact-run-id" placeholder="可选 UUID"></label><label class="field"><span>Kind</span><input id="artifact-kind" value="document" required></label><label class="field"><span>Classification</span><select id="artifact-classification"><option value="public">public</option><option value="internal" selected>internal</option><option value="confidential">confidential</option><option value="restricted">restricted</option></select></label><button class="button button-primary" type="submit">上传并扫描</button>
+              </form><div class="console-inspector"><form class="inline-form" id="artifact-lookup-form"><label class="field"><span>Artifact ID</span><input id="artifact-id-input" placeholder="UUID" required></label><button class="button button-secondary" type="submit">读取元数据</button></form><label class="field field-wide"><span>下载用途</span><input id="artifact-download-purpose" maxlength="256" value="operator-review"></label><div class="button-row"><button class="button button-secondary" id="download-artifact" type="button">下载</button><button class="button button-danger" id="delete-artifact" type="button">删除</button></div><div class="empty-state" id="artifact-view">尚未选择制品。</div></div></div>
+            </section>
+            <section class="console-panel" id="panel-memories" data-console-panel="memories" hidden>
+              <div class="panel-heading"><div><p>MEMORIES</p><h3>用户治理记忆</h3></div><button class="text-button" id="refresh-memories" type="button">刷新记忆</button></div>
+              <div class="console-split"><form class="console-form" id="memory-create-form">
+                <label class="field"><span>主体类型</span><select id="memory-subject-type"><option value="user">user</option><option value="project">project</option></select></label><label class="field"><span>主体 ID</span><input id="memory-subject-id" value="single-node-console" required></label><label class="field"><span>记忆类型</span><select id="memory-type"><option value="preference">preference</option><option value="project_knowledge">project_knowledge</option><option value="decision">decision</option><option value="constraint">constraint</option></select></label><label class="field"><span>Classification</span><select id="memory-classification"><option value="public">public</option><option value="internal" selected>internal</option></select></label><label class="field field-wide"><span>Purpose</span><input id="memory-purpose" value="general" required></label><label class="field field-wide"><span>内容</span><textarea id="memory-content" rows="4" maxlength="32000" required></textarea></label><label class="check-field"><input id="memory-confirm" type="checkbox" checked><span>确认持久写入</span></label><button class="button button-primary" type="submit">写入记忆</button>
+              </form><div class="console-inspector"><div class="record-list compact-records" id="memories-list"><div class="empty-state">连接后加载可见记忆。</div></div><form class="console-form memory-operation-form" id="memory-operation-form"><label class="field field-wide"><span>Memory ID</span><input id="memory-operation-id" placeholder="UUID" required></label><label class="field field-wide"><span>修正内容</span><textarea id="memory-correction-content" rows="2" maxlength="32000"></textarea></label><label class="field field-wide"><span>原因</span><input id="memory-operation-reason" maxlength="1000" value="Operator correction from governed console" required></label><div class="button-row"><button class="button button-secondary" id="correct-memory" type="button">修正</button><button class="button button-danger" id="delete-memory" type="button">删除</button></div></form></div></div>
+            </section>
+            <section class="console-panel" id="panel-governance" data-console-panel="governance" hidden>
+              <div class="panel-heading"><div><p>GOVERNANCE</p><h3>Kill Switch 与 Webhook</h3></div><button class="text-button" id="refresh-governance" type="button">刷新治理状态</button></div>
+              <div class="governance-grid"><article class="governance-card"><h4>激活 Kill Switch</h4><form class="console-form" id="kill-switch-form"><label class="field"><span>Scope</span><select id="kill-switch-scope"><option value="capability">capability</option><option value="use_case">use_case</option><option value="tenant">tenant</option><option value="environment">environment</option><option value="global">global</option></select></label><label class="field"><span>Scope ID</span><input id="kill-switch-scope-id" value="single-node" required></label><label class="field"><span>Mode</span><select id="kill-switch-mode"><option value="writes">writes</option><option value="all">all</option></select></label><label class="field"><span>Incident ID</span><input id="kill-switch-incident" placeholder="INC-2026-001" required></label><label class="field field-wide"><span>原因</span><input id="kill-switch-reason" maxlength="1000" required></label><button class="button button-danger" type="submit">激活门禁</button></form><div class="record-list compact-records" id="kill-switch-list"><div class="empty-state">尚未加载。</div></div></article>
+                <article class="governance-card"><h4>Webhook 端点</h4><form class="console-form" id="webhook-form"><label class="field"><span>名称</span><input id="webhook-name" required></label><label class="field field-wide"><span>HTTPS URL</span><input id="webhook-url" type="url" placeholder="企业 Webhook URL" required></label><label class="field field-wide"><span>事件类型（逗号分隔）</span><input id="webhook-events" value="run.completed,action.committed" required></label><button class="button button-primary" type="submit">注册 Webhook</button></form><div class="record-list compact-records" id="webhook-list"><div class="empty-state">尚未加载。</div></div></article></div>
+            </section>
+          </div>
+        </div>
+      </section>
+
       <section class="architecture-section section-shell" id="architecture">
         <div class="section-heading">
           <div>
@@ -162,7 +231,7 @@
             <p class="eyebrow">OPERATING MODEL</p>
             <h2>六类平台视图</h2>
           </div>
-          <p>对应架构规范中的运营与治理域；当前页面只展示能力边界。</p>
+          <p>下方是架构总览；实际运行与治理操作请使用上方功能控制台。</p>
         </div>
 
         <div class="capability-grid">
@@ -204,8 +273,8 @@
           <p class="eyebrow">EXPLICIT BOUNDARIES</p>
           <h2>这个页面能说明什么，也明确不假装什么</h2>
           <p>
-            当前公开页面是只读运行门户。它验证发布身份和依赖状态，
-            不承载身份认证后的业务操作，也不把开发环境 Header 鉴权暴露到公网。
+            页面提供真实控制台，但业务 API 必须通过 operator token 或企业 JWT。
+            凭据不写入浏览器存储；服务端仍执行租户、Scope、Step-up 与策略门禁。
           </p>
         </div>
         <ul class="guardrail-list">
@@ -223,8 +292,8 @@
           </li>
           <li>
             <span>03</span>
-            <div><strong>业务 API 默认拒绝</strong>
-              <p>匿名公网仅开放页面、静态资源、health 与 ready。</p>
+            <div><strong>业务 API 令牌门禁</strong>
+              <p>匿名请求返回 401；仅显式认证身份可以进入治理操作链路。</p>
             </div>
           </li>
         </ul>
@@ -236,7 +305,7 @@
         <strong>GPT-5.6 Agent Platform</strong>
         <span>Deterministic control plane</span>
       </div>
-      <p>Read-only operational surface · no credentials stored in browser</p>
+      <p>Governed operational console · credentials remain in page memory only</p>
     </footer>
   </body>
 </html>

@@ -1,1 +1,1 @@
-"""Packaged assets for the public read-only Agent Platform status portal."""
+"""Packaged assets for the governed Agent Platform operational console."""
