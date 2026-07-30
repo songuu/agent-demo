@@ -9,6 +9,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from agent_platform.api.frontend_assets import (
+    frontend_page,
+    frontend_script,
+    frontend_stylesheet,
+)
 from agent_platform.api.middleware import MIDDLEWARE_ORDER, SecurityEnvelopeMiddleware
 from agent_platform.api.routes_actions import router as actions_router
 from agent_platform.api.routes_artifacts import router as artifacts_router
@@ -117,13 +122,16 @@ def create_app(
         )
 
     @app.get("/", include_in_schema=False)
-    async def root() -> dict[str, Any]:
-        return {
-            "service": runtime_settings.service_name,
-            "version": "1.0.0",
-            "openapi": "/openapi.json",
-            "health": "/health",
-        }
+    async def root() -> Response:
+        return frontend_page()
+
+    @app.get("/assets/app.css", include_in_schema=False)
+    async def frontend_css() -> Response:
+        return frontend_stylesheet()
+
+    @app.get("/assets/app.js", include_in_schema=False)
+    async def frontend_javascript() -> Response:
+        return frontend_script()
 
     @app.get("/health", tags=["operations"])
     async def health(request: Request) -> dict[str, Any]:

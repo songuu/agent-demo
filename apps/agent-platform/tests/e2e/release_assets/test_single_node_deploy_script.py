@@ -110,9 +110,14 @@ def test_default_release_id_is_git_bound_and_upgrade_guard_runs_before_clone() -
     assert result.returncode == 0, result.stderr
     assert f"/releases/git-{git_sha}" in result.stdout
     source = SCRIPT.read_text(encoding="utf-8")
-    assert source.index("single-node upgrades are refused") < source.index("git clone --depth 1")
+    current_guard = "current symlink resolves outside $resolved_releases_dir"
+    clone = 'git clone --depth 2 --branch "$branch"'
+    parent_gate = 'release_parent_count="$(git -C "$release" rev-list --parents -n 1 HEAD'
+
+    assert source.index(current_guard) < source.index(clone)
     assert source.index("git ls-remote") < source.index("mktemp -d")
-    assert source.index("mktemp -d") < source.index("git clone --depth 1")
+    assert source.index("mktemp -d") < source.index(clone)
+    assert source.index(clone) < source.index(parent_gate)
 
 
 def test_single_node_deploy_script_keeps_security_and_capacity_gates() -> None:
@@ -143,8 +148,8 @@ def test_single_node_deploy_script_keeps_security_and_capacity_gates() -> None:
     assert source.index("compose exec -T agent-api python -") < source.index(
         'nginx_begin_marker="# BEGIN managed Agent Platform single-node'
     )
-    assert source.index('public_denied_code="$(curl') < source.index(
-        'ln -sfn "$release" "$current"'
+    assert source.index('public_denied_code="$(curl') < source.rindex(
+        'switch_current_release "$release"'
     )
     assert "if ($dm_authed" not in source
     assert "nginx -t" in source
@@ -156,6 +161,32 @@ def test_single_node_deploy_script_keeps_security_and_capacity_gates() -> None:
     assert "--expect-structural-only-readiness-block" in source
     assert "single-node-deployed-with-known-readiness-block" in source
     assert "pm2" not in source.lower()
+
+
+def test_single_node_nginx_frontend_routes_are_exact_and_precede_the_catch_all() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    template_start = source.index(
+        'awk -v base_path="$base_path" -v port="$port" \'\n',
+    )
+    template_end = source.index('\' > "$expected_nginx_block"', template_start)
+    template = source[template_start:template_end]
+
+    exact_routes = (
+        'location = " base_path "/ {"',
+        'location = " base_path "/health {"',
+        'location = " base_path "/ready {"',
+        'location = " base_path "/assets/app.css {"',
+        'location = " base_path "/assets/app.js {"',
+    )
+    catch_all = 'location ^~ " base_path "/ {"'
+
+    assert 'proxy_pass http://127.0.0.1:" port "/;"' in template
+    assert 'proxy_pass http://127.0.0.1:" port "/health;"' in template
+    assert 'proxy_pass http://127.0.0.1:" port "/ready;"' in template
+    assert 'proxy_pass http://127.0.0.1:" port "/assets/app.css;"' in template
+    assert 'proxy_pass http://127.0.0.1:" port "/assets/app.js;"' in template
+    assert all(template.index(route) < template.index(catch_all) for route in exact_routes)
+    assert 'location ^~ " base_path "/assets/' not in template
 
 
 def test_single_node_deploy_serializes_heavy_services_and_keeps_ssh_alive() -> None:
@@ -234,6 +265,187 @@ def test_rendered_public_identity_gate_waits_for_nginx_and_preserves_json_quotes
     assert "public Agent Platform release identity did not converge" in rendered
 
 
+def test_rendered_public_frontend_assets_and_denied_surface_are_verified() -> None:
+    rendered = _render_remote_deploy_script()
+
+    identity_gate = 'if [ "$public_identity_ready" != "1" ]; then'
+    root_gate = 'read -r public_root_code public_root_content_type <<<"$public_root_meta"'
+    marker_gate = """grep -Fq 'data-agent-platform-shell="v1"'"""
+    css_gate = 'assert_public_frontend_asset "assets/app.css" "text/css"'
+    script_gate = 'assert_public_frontend_asset "assets/app.js" "application/javascript"'
+    denied_paths = "for public_denied_path in v1/models openapi.json docs redoc metrics; do"
+    ready_gate = 'if [ "$public_ready_code" != "503" ]; then'
+
+    assert "expected public Agent Platform frontend HTTP 200" in rendered
+    assert "text/html*) ;;" in rendered
+    assert marker_gate in rendered
+    assert css_gate in rendered
+    assert script_gate in rendered
+    assert "--header 'X-Agent-Roles: admin'" in rendered
+    assert '"$public_url""v1/runs"' in rendered
+    assert denied_paths in rendered
+    assert '"$public_url$public_denied_path"' in rendered
+    assert '"artifact_malware_scanner":"error:policy-fail-closed:structural-only"' in rendered
+    assert (
+        rendered.index(identity_gate)
+        < rendered.index(root_gate)
+        < rendered.index(marker_gate)
+        < rendered.index(css_gate)
+        < rendered.index(script_gate)
+        < rendered.index(denied_paths)
+        < rendered.index(ready_gate)
+    )
+    assert "trap deployment_exit_handler EXIT" in rendered
+    cleanup_index = rendered.index("cleanup_public_validation")
+    assert cleanup_index < rendered.index(
+        "if ! all_required_services_ready; then",
+        cleanup_index,
+    )
+
+
+def test_rendered_public_frontend_requires_security_headers() -> None:
+    rendered = _render_remote_deploy_script()
+
+    assert '--dump-header "$public_validation_headers"' in rendered
+    assert "read_public_response_header Content-Security-Policy" in rendered
+    assert "\"default-src 'none'\"" in rendered
+    assert "\"script-src 'self'\"" in rendered
+    assert "\"style-src 'self'\"" in rendered
+    assert "\"connect-src 'self'\"" in rendered
+    assert "assert_public_header_exact X-Frame-Options DENY" in rendered
+    assert "assert_public_header_exact X-Content-Type-Options nosniff" in rendered
+    assert "assert_public_header_exact Referrer-Policy no-referrer" in rendered
+    assert "assert_public_header_exact Cache-Control no-store" in rendered
+    assert 'rm -f -- "$public_validation_body" "$public_validation_headers"' in rendered
+
+
+def test_frontend_only_runtime_classifier_allows_only_the_reviewed_surface() -> None:
+    if AWK is None and WSL is None:
+        pytest.skip("awk or WSL is required for runtime compatibility classification")
+
+    rendered = _render_remote_deploy_script()
+    classifier = _extract_rendered_awk(
+        rendered,
+        "  if ! awk '\n",
+        '\n  \' "$runtime_changed_paths"; then',
+    )
+    allowed_paths = (
+        "apps/agent-platform/src/agent_platform/api/app.py\n"
+        "apps/agent-platform/src/agent_platform/api/frontend_assets.py\n"
+        "apps/agent-platform/src/agent_platform/api/frontend/__init__.py\n"
+        "apps/agent-platform/src/agent_platform/api/frontend/index.html\n"
+        "apps/agent-platform/src/agent_platform/api/frontend/app.css\n"
+        "apps/agent-platform/src/agent_platform/api/frontend/app.js\n"
+    )
+    rejected_paths = (
+        "apps/agent-platform/migrations/versions/unsafe.py",
+        "apps/agent-platform/deploy/docker/docker-compose.yml",
+        "apps/agent-platform/src/agent_platform/workflows/runtime.py",
+    )
+
+    awk_command = [AWK] if AWK is not None else [WSL, "-e", "awk"]
+    allowed = subprocess.run(  # noqa: S603 - fixed local awk/WSL executable
+        [*awk_command, classifier],
+        input=allowed_paths,
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert allowed.returncode == 0, allowed.stderr
+
+    for rejected_path in rejected_paths:
+        rejected = subprocess.run(  # noqa: S603 - fixed local awk/WSL executable
+            [*awk_command, classifier],
+            input=f"{rejected_path}\n",
+            check=False,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        assert rejected.returncode != 0
+        assert rejected_path in rejected.stderr
+
+
+def test_runtime_manifest_ignores_non_runtime_repository_changes() -> None:
+    rendered = _render_remote_deploy_script()
+    manifest_start = rendered.index("  write_runtime_manifest() {")
+    manifest_end = rendered.index(
+        '  write_runtime_manifest "$previous_release"',
+        manifest_start,
+    )
+    manifest = rendered[manifest_start:manifest_end]
+
+    assert "apps/agent-platform/deploy/docker" in manifest
+    assert "apps/agent-platform/deploy \\" not in manifest
+    assert "apps/agent-platform/tests" not in manifest
+    assert "apps/agent-platform/docs" not in manifest
+    assert "apps/agent-platform/scripts" not in manifest
+    assert ".github/workflows" not in manifest
+
+
+def test_frontend_upgrade_has_parent_blob_env_lock_and_rollback_gates() -> None:
+    rendered = _render_remote_deploy_script()
+
+    lock = "if ! flock -n 9; then"
+    current_validation = 'if [ -e "$current" ] && [ ! -L "$current" ]; then'
+    parent_gate = 'release_parent_count="$(git -C "$release" rev-list --parents -n 1 HEAD'
+    blob_gate = 'previous_app_blob" != "f65d0510f45f2de2c95ca303123170d19c98086c"'
+    new_blob = "052811a887142bccef02b089331fd34788bf6f4c"
+    install_trap = "trap deployment_exit_handler EXIT"
+    stop_new = "compose stop agent-api agent-worker commit-worker outbox-worker retention-worker"
+    public_gate = 'if [ "$public_ready_code" != "503" ]; then'
+    final_service_gate = "single-node required service state changed before release switch"
+    current_switch = 'switch_current_release "$release"'
+    release_trap = "rollback_required=0\ntrap - EXIT"
+
+    assert rendered.index(lock) < rendered.index(current_validation)
+    assert parent_gate in rendered
+    assert 'previous_release_env_file="$previous_release/.agent-platform-release.env"' in rendered
+    assert "previous release image digest mismatch" in rendered
+    assert blob_gate in rendered
+    assert new_blob in rendered
+    install_trap_index = rendered.index(install_trap)
+    assert install_trap_index < rendered.index(stop_new, install_trap_index)
+    assert 'cp "$backup" "$nginx_config"' in rendered
+    assert "previous_compose up -d --no-build --no-deps --force-recreate" in rendered
+    assert "previous release health identity did not recover" in rendered
+    assert "for previous_worker in agent-worker commit-worker outbox-worker; do" in rendered
+    assert "previous release workers did not recover healthy/running states" in rendered
+    assert (
+        rendered.index(public_gate)
+        < rendered.index(final_service_gate)
+        < rendered.rindex(current_switch)
+        < rendered.index(release_trap)
+    )
+    assert 'switch_current_release "$previous_release"' in rendered
+    assert "ln -sfn" not in rendered
+    helper_start = rendered.index("switch_current_release() {")
+    helper_end = rendered.index("deployment_exit_handler() {", helper_start)
+    helper = rendered[helper_start:helper_end]
+    assert 'if ! current_switch_temp_dir="$(mktemp -d' in helper
+    assert 'if ! ln -s -- "$target_release" "$current_switch_candidate"; then' in helper
+    assert 'if ! mv -Tf -- "$current_switch_candidate" "$current"; then' in helper
+    assert 'if ! rmdir -- "$current_switch_temp_dir"; then' in helper
+    assert helper.count("return 78") == 4
+    rollback_cleanup = rendered.index(
+        'cleanup_deployment_temporaries\n  if [ "$rollback_failed" != "0" ]'
+    )
+    assert rollback_cleanup < rendered.index("frontend-only deployment rollback failed")
+
+
+def test_same_release_retry_does_not_enter_frontend_upgrade_mode() -> None:
+    rendered = _render_remote_deploy_script()
+
+    same_release_guard = 'if [ "$previous_release" != "$requested_release" ]; then'
+    upgrade_assignment = "upgrade_required=1"
+    parent_gate = 'release_parent_count="$(git -C "$release" rev-list --parents -n 1 HEAD'
+
+    guard_index = rendered.index(same_release_guard)
+    assert guard_index < rendered.index(upgrade_assignment, guard_index)
+    assert guard_index < rendered.index(parent_gate, guard_index)
+
+
 def test_rendered_nginx_awk_executes_and_binds_the_exact_domain(
     tmp_path: Path,
 ) -> None:
@@ -244,12 +456,12 @@ def test_rendered_nginx_awk_executes_and_binds_the_exact_domain(
     insertion_program = _extract_rendered_awk(
         rendered,
         'awk -v block_file="$expected_nginx_block" -v domain="$domain" \'\n',
-        '\n  \' "$nginx_config" > "$tmp"',
+        '\n  \' "$nginx_config" > "$nginx_tmp"',
     )
     validator_program = _extract_rendered_awk(
         rendered,
         'awk -v begin_marker="$nginx_begin_marker" -v domain="$domain" \'\n',
-        '\n\' "$nginx_config" || {',
+        '\n  \' "$nginx_config" || {',
     )
     nginx_config = tmp_path / "nginx.conf"
     managed_block = tmp_path / "managed.conf"
@@ -376,6 +588,131 @@ def test_rendered_nginx_awk_executes_and_binds_the_exact_domain(
         errors="replace",
     )
     assert wrong_server_result.returncode != 0
+
+
+def test_rendered_nginx_legacy_migration_replaces_the_managed_block(
+    tmp_path: Path,
+) -> None:
+    if AWK is None and WSL is None:
+        pytest.skip("awk or WSL is required for rendered Nginx AWK execution")
+
+    rendered = _render_remote_deploy_script()
+    migration_program = _extract_rendered_awk(
+        rendered,
+        '      -v end_marker="$nginx_end_marker" \'\n',
+        '\n      \' "$nginx_config" > "$nginx_tmp"; then',
+    )
+    nginx_config = tmp_path / "nginx.conf"
+    expected_block = tmp_path / "expected.conf"
+    begin_marker = "# BEGIN managed Agent Platform single-node /agent-demo/agent-platform"
+    end_marker = "# END managed Agent Platform single-node /agent-demo/agent-platform"
+    legacy_block = (
+        f"    {begin_marker}\n"
+        "    location = /agent-demo/agent-platform {\n"
+        "        return 301 /agent-demo/agent-platform/;\n"
+        "    }\n\n"
+        "    location = /agent-demo/agent-platform/ {\n"
+        "        proxy_pass http://127.0.0.1:5181/health;\n"
+        "    }\n"
+        f"    {end_marker}\n"
+    )
+    expected = (
+        f"    {begin_marker}\n"
+        "    location = /agent-demo/agent-platform {\n"
+        "        return 301 /agent-demo/agent-platform/;\n"
+        "    }\n\n"
+        "    location = /agent-demo/agent-platform/ {\n"
+        "        proxy_pass http://127.0.0.1:5181/;\n"
+        "    }\n\n"
+        "    location = /agent-demo/agent-platform/assets/app.css {\n"
+        "        proxy_pass http://127.0.0.1:5181/assets/app.css;\n"
+        "    }\n\n"
+        "    location = /agent-demo/agent-platform/assets/app.js {\n"
+        "        proxy_pass http://127.0.0.1:5181/assets/app.js;\n"
+        "    }\n"
+        f"    {end_marker}\n"
+    )
+    expected_block.write_text(expected, encoding="utf-8", newline="")
+    nginx_config.write_text(
+        "server {\n"
+        "    server_name songuu.top;\n"
+        "    location = / { return 200; }\n\n"
+        f"{legacy_block}"
+        "}\n",
+        encoding="utf-8",
+        newline="",
+    )
+
+    if AWK is not None:
+        awk_command = [AWK]
+        expected_block_arg = str(expected_block)
+        nginx_config_arg = str(nginx_config)
+    else:
+        assert WSL is not None
+
+        def wsl_path(path: Path) -> str:
+            result = subprocess.run(  # noqa: S603 - fixed WSL executable and wslpath
+                [WSL, "-e", "wslpath", "-a", str(path)],
+                check=False,
+                capture_output=True,
+            )
+            stderr = result.stderr.decode("utf-8", errors="replace")
+            assert result.returncode == 0, stderr
+            return result.stdout.decode("utf-8").strip()
+
+        awk_command = [WSL, "-e", "awk"]
+        expected_block_arg = wsl_path(expected_block)
+        nginx_config_arg = wsl_path(nginx_config)
+
+    result = subprocess.run(  # noqa: S603 - fixed local awk/WSL executable
+        [
+            *awk_command,
+            "-v",
+            f"block_file={expected_block_arg}",
+            "-v",
+            f"begin_marker={begin_marker}",
+            "-v",
+            f"end_marker={end_marker}",
+            migration_program,
+            nginx_config_arg,
+        ],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+    assert result.returncode == 0, (
+        f"{result.stderr}\nAWK program:\n{migration_program}\nAWK stdout:\n{result.stdout}"
+    )
+    assert legacy_block not in result.stdout
+    assert result.stdout.count(expected) == 1
+    assert "server_name songuu.top;" in result.stdout
+    assert "location = / { return 200; }" in result.stdout
+
+
+def test_nginx_migration_accepts_only_the_exact_legacy_template_and_restores_backup() -> None:
+    rendered = _render_remote_deploy_script()
+
+    current_template_gate = 'if cmp -s "$expected_nginx_block" "$actual_nginx_block"; then'
+    legacy_template_gate = 'elif cmp -s "$legacy_nginx_block" "$actual_nginx_block"; then'
+    unknown_drift_gate = (
+        'echo "Agent Platform Nginx managed block differs from the supported templates" >&2'
+    )
+    replacement = "failed to replace the exact legacy Agent Platform Nginx managed block"
+
+    assert rendered.index(current_template_gate) < rendered.index(legacy_template_gate)
+    assert rendered.index(legacy_template_gate) < rendered.index(replacement)
+    assert rendered.index(replacement) < rendered.index(unknown_drift_gate)
+    assert 'diff -u "$expected_nginx_block" "$actual_nginx_block" >&2 || true' in rendered
+    assert rendered.index(unknown_drift_gate) < rendered.index(
+        "exit 80", rendered.index(unknown_drift_gate)
+    )
+    assert 'backup="$nginx_config.bak.agent-platform-$(date +%Y%m%d%H%M%S)"' in rendered
+    assert 'cp "$nginx_config" "$backup"' in rendered
+    assert "if ! nginx -t; then" in rendered
+    assert 'cp "$backup" "$nginx_config"\n    nginx -t' in rendered
+    assert rendered.index("validate_managed_nginx_routes") < rendered.index(legacy_template_gate)
 
 
 def test_agent_platform_is_registered_at_the_deployed_base_path() -> None:

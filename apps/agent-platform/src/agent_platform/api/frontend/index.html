@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN" data-agent-platform-shell="v1">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#07111f">
+    <meta
+      name="description"
+      content="GPT-5.6 Agent Platform 受约束单节点环境的只读运行概览。"
+    >
+    <title>GPT-5.6 Agent Platform</title>
+    <link rel="stylesheet" href="assets/app.css">
+    <script src="assets/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳转到主要内容</a>
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="brand" href="#overview" aria-label="Agent Platform 首页">
+        <span class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </span>
+        <span>
+          <strong>Agent Platform</strong>
+          <small>GPT-5.6 CONTROL PLANE</small>
+        </span>
+      </a>
+      <nav class="topnav" aria-label="页面导航">
+        <a href="#status">运行状态</a>
+        <a href="#architecture">执行架构</a>
+        <a href="#capabilities">平台能力</a>
+        <a href="#guardrails">安全边界</a>
+      </nav>
+      <div class="environment-chip">
+        <span class="pulse-dot" aria-hidden="true"></span>
+        受约束单节点开发环境
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="hero section-shell" id="overview">
+        <div class="hero-copy">
+          <p class="eyebrow">DETERMINISTIC · BOUNDED · AUDITABLE</p>
+          <h1>让每一次 Agent 执行<br><span class="hero-accent"><span>可控、</span> <span>可验、</span> <span>可追溯</span></span></h1>
+          <p class="hero-description">
+            面向企业级 Agent 工作负载的确定性控制平面。统一编排运行、策略、
+            工具、审批、制品和证据，同时把外部写入约束在
+            Prepare / Approve / Commit / Verify 事务边界内。
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#status">查看实时状态</a>
+            <a class="button button-secondary" href="health">健康检查 JSON</a>
+          </div>
+          <dl class="hero-facts" aria-label="平台核心属性">
+            <div><dt>执行语义</dt><dd>Temporal Durable Workflow</dd></div>
+            <div><dt>策略边界</dt><dd>OPA Fail Closed</dd></div>
+            <div><dt>发布模型</dt><dd>Git SHA + Image Digest</dd></div>
+          </dl>
+        </div>
+
+        <aside class="release-panel" aria-labelledby="release-title">
+          <div class="panel-topline">
+            <div>
+              <p class="panel-kicker">LIVE RELEASE</p>
+              <h2 id="release-title">发布身份</h2>
+            </div>
+            <span class="status-pill is-loading" id="service-status">
+              <span></span>正在连接
+            </span>
+          </div>
+          <div class="identity-visual" aria-hidden="true">
+            <div class="identity-core"><span>AP</span></div>
+            <i class="orbit orbit-one"></i>
+            <i class="orbit orbit-two"></i>
+            <i class="orbit orbit-three"></i>
+          </div>
+          <dl class="release-details">
+            <div><dt>Git SHA</dt><dd id="release-sha">读取中…</dd></div>
+            <div><dt>Image Digest</dt><dd id="release-digest">读取中…</dd></div>
+            <div><dt>运行模式</dt><dd>single-node-dev-validation</dd></div>
+          </dl>
+          <div class="refresh-row">
+            <span id="last-updated" aria-live="polite">尚未刷新</span>
+            <button class="refresh-button" id="refresh-status" type="button">
+              <span aria-hidden="true">↻</span>刷新状态
+            </button>
+          </div>
+        </aside>
+      </section>
+
+      <section class="status-section section-shell" id="status">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">RUNTIME SIGNALS</p>
+            <h2>运行状态</h2>
+          </div>
+          <p>数据直接来自当前发布的健康与就绪端点，不模拟业务指标。</p>
+        </div>
+
+        <div class="readiness-banner is-loading" id="readiness-banner" role="status">
+          <span class="readiness-icon" aria-hidden="true">···</span>
+          <div>
+            <strong id="readiness-title">正在检查就绪门禁</strong>
+            <p id="readiness-description">正在读取控制平面依赖状态。</p>
+          </div>
+          <a href="ready">查看详情</a>
+        </div>
+
+        <div class="dependency-grid" id="dependency-grid" aria-live="polite">
+          <article class="dependency-card is-loading">
+            <span></span>
+            <div><strong>依赖状态</strong><small>正在加载…</small></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="architecture-section section-shell" id="architecture">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">EXECUTION BOUNDARY</p>
+            <h2>从请求到证据的确定性链路</h2>
+          </div>
+          <p>每个阶段都保留策略决策、版本和可验证回执。</p>
+        </div>
+
+        <ol class="execution-flow">
+          <li>
+            <span class="flow-number">01</span><div class="flow-icon">IN</div>
+            <strong>Contract</strong><p>规范化目标、约束、预算与成功标准。</p>
+          </li>
+          <li>
+            <span class="flow-number">02</span><div class="flow-icon">RK</div>
+            <strong>Risk & Policy</strong>
+            <p>分类风险，基于 OPA 和能力目录做 fail-closed 授权。</p>
+          </li>
+          <li>
+            <span class="flow-number">03</span><div class="flow-icon">AG</div>
+            <strong>Agent Runtime</strong>
+            <p>受预算、deadline、工具次数和轨迹守卫约束执行。</p>
+          </li>
+          <li>
+            <span class="flow-number">04</span><div class="flow-icon">TL</div>
+            <strong>Tools</strong><p>网关隔离凭证、配额、网络和工具版本。</p>
+          </li>
+          <li>
+            <span class="flow-number">05</span><div class="flow-icon">VF</div>
+            <strong>Verify</strong><p>校验 Schema、证据、环境与结果完整性。</p>
+          </li>
+          <li>
+            <span class="flow-number">06</span><div class="flow-icon">AC</div>
+            <strong>Action</strong><p>外部写入经过准备、审批、提交和事后验证。</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="capabilities-section section-shell" id="capabilities">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">OPERATING MODEL</p>
+            <h2>六类平台视图</h2>
+          </div>
+          <p>对应架构规范中的运营与治理域；当前页面只展示能力边界。</p>
+        </div>
+
+        <div class="capability-grid">
+          <article class="capability-card accent-cyan">
+            <span class="card-index">01</span><p>Executive</p>
+            <h3>价值与风险总览</h3>
+            <ul><li>运行成功率</li><li>业务合格率</li><li>成本与风险告警</li></ul>
+          </article>
+          <article class="capability-card accent-blue">
+            <span class="card-index">02</span><p>Operations</p>
+            <h3>可靠性与容量</h3>
+            <ul><li>队列与延迟</li><li>依赖健康</li><li>SLO Error Budget</li></ul>
+          </article>
+          <article class="capability-card accent-violet">
+            <span class="card-index">03</span><p>Model</p>
+            <h3>模型质量与成本</h3>
+            <ul><li>Token 与成本</li><li>格式失败率</li><li>质量与延迟对比</li></ul>
+          </article>
+          <article class="capability-card accent-green">
+            <span class="card-index">04</span><p>Tools</p>
+            <h3>工具与策略</h3>
+            <ul><li>调用量与 P95</li><li>策略拒绝</li><li>MCP 服务健康</li></ul>
+          </article>
+          <article class="capability-card accent-amber">
+            <span class="card-index">05</span><p>Actions</p>
+            <h3>审批与外部写入</h3>
+            <ul><li>待审批与超时</li><li>Commit 状态</li><li>验证与补偿</li></ul>
+          </article>
+          <article class="capability-card accent-red">
+            <span class="card-index">06</span><p>Safety</p>
+            <h3>安全与轨迹控制</h3>
+            <ul><li>Prompt Injection</li><li>Kill Switch</li><li>敏感数据边界</li></ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="guardrails-section section-shell" id="guardrails">
+        <div class="guardrail-copy">
+          <p class="eyebrow">EXPLICIT BOUNDARIES</p>
+          <h2>这个页面能说明什么，也明确不假装什么</h2>
+          <p>
+            当前公开页面是只读运行门户。它验证发布身份和依赖状态，
+            不承载身份认证后的业务操作，也不把开发环境 Header 鉴权暴露到公网。
+          </p>
+        </div>
+        <ul class="guardrail-list">
+          <li>
+            <span>01</span>
+            <div><strong>单节点，不是 HA</strong>
+              <p>用于当前受约束环境的真实功能验证，不代表生产高可用能力。</p>
+            </div>
+          </li>
+          <li>
+            <span>02</span>
+            <div><strong>Scanner 保持 fail-closed</strong>
+              <p>结构检查模式会让 readiness 保持 503，health 仍可证明服务存活。</p>
+            </div>
+          </li>
+          <li>
+            <span>03</span>
+            <div><strong>业务 API 默认拒绝</strong>
+              <p>匿名公网仅开放页面、静态资源、health 与 ready。</p>
+            </div>
+          </li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="footer section-shell">
+      <div>
+        <strong>GPT-5.6 Agent Platform</strong>
+        <span>Deterministic control plane</span>
+      </div>
+      <p>Read-only operational surface · no credentials stored in browser</p>
+    </footer>
+  </body>
+</html>

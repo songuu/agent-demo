@@ -155,17 +155,44 @@ command -v docker >/dev/null
 docker compose version >/dev/null
 command -v openssl >/dev/null
 command -v nginx >/dev/null
+command -v flock >/dev/null
 
 current="$release_root/current"
+releases_dir="$release_root/releases"
+mkdir -p "$releases_dir"
+resolved_releases_dir="$(readlink -f "$releases_dir")"
+requested_release="$(readlink -m "$release")"
+previous_release=""
+previous_git_sha=""
+upgrade_required=0
 if [ -e "$current" ] && [ ! -L "$current" ]; then
   echo "current path exists but is not a symlink: $current" >&2
   exit 78
 fi
 if [ -L "$current" ]; then
-  previous_release="$(readlink -f "$current")"
-  if [ "$previous_release" != "$release" ]; then
-    echo "single-node upgrades are refused without a transactional database rollback plan" >&2
+  if ! previous_release="$(readlink -f "$current")" || [ -z "$previous_release" ]; then
+    echo "current symlink does not resolve to a release checkout: $current" >&2
     exit 78
+  fi
+  case "$previous_release" in
+    "$resolved_releases_dir"/*) ;;
+    *)
+      echo "current symlink resolves outside $resolved_releases_dir: $previous_release" >&2
+      exit 78
+      ;;
+  esac
+  if ! git -C "$previous_release" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "current release is not a Git checkout: $previous_release" >&2
+    exit 78
+  fi
+  previous_toplevel="$(readlink -f "$(git -C "$previous_release" rev-parse --show-toplevel)")"
+  if [ "$previous_toplevel" != "$previous_release" ]; then
+    echo "current symlink does not target the Git checkout root: $previous_release" >&2
+    exit 78
+  fi
+  previous_git_sha="$(git -C "$previous_release" rev-parse HEAD)"
+  if [ "$previous_release" != "$requested_release" ]; then
+    upgrade_required=1
   fi
 fi
 
@@ -208,7 +235,7 @@ if [ ! -d "$release/.git" ]; then
     fi
   }
   trap cleanup_clone EXIT
-  git clone --depth 1 --branch "$branch" "$repository_url" "$clone_dir"
+  git clone --depth 2 --branch "$branch" "$repository_url" "$clone_dir"
   cloned_git_sha="$(git -C "$clone_dir" rev-parse HEAD)"
   if [ "$cloned_git_sha" != "$expected_git_sha" ]; then
     echo "cloned release mismatch: expected $expected_git_sha, got $cloned_git_sha" >&2
@@ -234,6 +261,18 @@ actual_git_sha="$(git -C "$release" rev-parse HEAD)"
 if [ "$actual_git_sha" != "$expected_git_sha" ]; then
   echo "release checkout mismatch: expected $expected_git_sha, got $actual_git_sha" >&2
   exit 72
+fi
+if [ "$upgrade_required" = "1" ]; then
+  release_parent_count="$(git -C "$release" rev-list --parents -n 1 HEAD | awk '{ print NF - 1 }')"
+  if [ "$release_parent_count" != "1" ]; then
+    echo "frontend-only upgrade requires a new release with exactly one parent" >&2
+    exit 78
+  fi
+  release_parent_git_sha="$(git -C "$release" rev-parse HEAD^)"
+  if [ "$previous_git_sha" != "$release_parent_git_sha" ]; then
+    echo "current release SHA $previous_git_sha is not the new release parent $release_parent_git_sha" >&2
+    exit 78
+  fi
 fi
 
 echo "preflight=ok"
@@ -274,20 +313,66 @@ nginx_config=/etc/nginx/conf.d/default.conf
 base_compose="$release/apps/agent-platform/deploy/docker/docker-compose.yml"
 override_compose="$release/apps/agent-platform/deploy/docker/docker-compose.single-node.yml"
 
+if ! command -v flock >/dev/null; then
+  echo "frontend-only deployment requires flock" >&2
+  exit 78
+fi
+install -d -m 0700 "$state_dir"
+exec 9>"$state_dir/deploy.lock"
+if ! flock -n 9; then
+  echo "another Agent Platform deployment holds $state_dir/deploy.lock" >&2
+  exit 84
+fi
+
 actual_git_sha="$(git -C "$release" rev-parse HEAD)"
 if [ "$actual_git_sha" != "$expected_git_sha" ]; then
   echo "refusing mismatched release checkout" >&2
   exit 73
 fi
+releases_dir="$release_root/releases"
+resolved_releases_dir="$(readlink -f "$releases_dir")"
+requested_release="$(readlink -m "$release")"
+previous_release=""
+previous_git_sha=""
+upgrade_required=0
 if [ -e "$current" ] && [ ! -L "$current" ]; then
   echo "current path exists but is not a symlink: $current" >&2
   exit 78
 fi
 if [ -L "$current" ]; then
-  previous_release="$(readlink -f "$current")"
-  if [ "$previous_release" != "$release" ]; then
-    echo "single-node upgrades are refused without a transactional database rollback plan" >&2
+  if ! previous_release="$(readlink -f "$current")" || [ -z "$previous_release" ]; then
+    echo "current symlink does not resolve to a release checkout: $current" >&2
     exit 78
+  fi
+  case "$previous_release" in
+    "$resolved_releases_dir"/*) ;;
+    *)
+      echo "current symlink resolves outside $resolved_releases_dir: $previous_release" >&2
+      exit 78
+      ;;
+  esac
+  if ! git -C "$previous_release" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "current release is not a Git checkout: $previous_release" >&2
+    exit 78
+  fi
+  previous_toplevel="$(readlink -f "$(git -C "$previous_release" rev-parse --show-toplevel)")"
+  if [ "$previous_toplevel" != "$previous_release" ]; then
+    echo "current symlink does not target the Git checkout root: $previous_release" >&2
+    exit 78
+  fi
+  previous_git_sha="$(git -C "$previous_release" rev-parse HEAD)"
+  if [ "$previous_release" != "$requested_release" ]; then
+    upgrade_required=1
+    release_parent_count="$(git -C "$release" rev-list --parents -n 1 HEAD | awk '{ print NF - 1 }')"
+    if [ "$release_parent_count" != "1" ]; then
+      echo "frontend-only upgrade requires a new release with exactly one parent" >&2
+      exit 78
+    fi
+    release_parent_git_sha="$(git -C "$release" rev-parse HEAD^)"
+    if [ "$previous_git_sha" != "$release_parent_git_sha" ]; then
+      echo "current release SHA $previous_git_sha is not the new release parent $release_parent_git_sha" >&2
+      exit 78
+    fi
   fi
 fi
 actual_image_digest="$(docker image inspect --format '{{.Id}}' "$image")"
@@ -308,6 +393,10 @@ require_free_disk() {
 require_free_disk post_image_load 1700000000
 
 install -d -m 0700 "$state_dir"
+if [ "$upgrade_required" = "1" ] && [ ! -s "$secret_env_file" ]; then
+  echo "frontend-only upgrade requires the existing single-node secret env" >&2
+  exit 78
+fi
 if [ ! -s "$secret_env_file" ]; then
   postgres_password="$(openssl rand -hex 24)"
   minio_password="$(openssl rand -hex 32)"
@@ -320,6 +409,181 @@ if [ ! -s "$secret_env_file" ]; then
     printf 'AGENT_PLATFORM_SINGLE_NODE_QUOTA_HMAC_SECRET=%s\\n' "$quota_hmac_secret"
   } > "$secret_env_file"
   chmod 0600 "$secret_env_file"
+fi
+
+previous_release_env_file=""
+previous_image=""
+previous_image_digest=""
+previous_base_compose=""
+previous_override_compose=""
+read_release_env_value() {
+  env_file="$1"
+  env_key="$2"
+  awk -v expected_key="$env_key" '
+    index($0, expected_key "=") == 1 {
+      matches++;
+      value = substr($0, length(expected_key) + 2);
+    }
+    END {
+      if (matches != 1 || value == "") {
+        exit 47;
+      }
+      print value;
+    }
+  ' "$env_file"
+}
+
+if [ "$upgrade_required" = "1" ]; then
+  previous_release_env_file="$previous_release/.agent-platform-release.env"
+  previous_base_compose="$previous_release/apps/agent-platform/deploy/docker/docker-compose.yml"
+  previous_override_compose="$previous_release/apps/agent-platform/deploy/docker/docker-compose.single-node.yml"
+  if [ ! -s "$previous_release_env_file" ]; then
+    echo "frontend-only upgrade requires previous release env: $previous_release_env_file" >&2
+    exit 78
+  fi
+  if [ ! -f "$previous_base_compose" ] || [ ! -f "$previous_override_compose" ]; then
+    echo "frontend-only upgrade requires previous release compose files" >&2
+    exit 78
+  fi
+  if ! previous_image="$(read_release_env_value "$previous_release_env_file" AGENT_PLATFORM_IMAGE)" ||
+    ! previous_release_git_env="$(read_release_env_value "$previous_release_env_file" AGENT_PLATFORM_RELEASE_GIT_SHA)" ||
+    ! previous_image_digest="$(read_release_env_value "$previous_release_env_file" AGENT_PLATFORM_RELEASE_IMAGE_DIGEST)"; then
+    echo "previous release env is missing a unique image, Git SHA, or image digest" >&2
+    exit 78
+  fi
+  if [ "$previous_release_git_env" != "$previous_git_sha" ]; then
+    echo "previous release env Git SHA mismatch: expected $previous_git_sha, got $previous_release_git_env" >&2
+    exit 78
+  fi
+  if ! inspected_previous_image_digest="$(docker image inspect --format '{{.Id}}' "$previous_image")"; then
+    echo "previous release image is unavailable: $previous_image" >&2
+    exit 78
+  fi
+  if [ "$inspected_previous_image_digest" != "$previous_image_digest" ]; then
+    echo "previous release image digest mismatch: expected $previous_image_digest, got $inspected_previous_image_digest" >&2
+    exit 78
+  fi
+
+  compatibility_temp_dir="$(mktemp -d)"
+  cleanup_runtime_compatibility() {
+    rm -rf -- "$compatibility_temp_dir"
+  }
+  trap cleanup_runtime_compatibility EXIT
+  previous_runtime_manifest="$compatibility_temp_dir/previous.manifest"
+  new_runtime_manifest="$compatibility_temp_dir/new.manifest"
+  runtime_changed_paths="$compatibility_temp_dir/changed.paths"
+
+  write_runtime_manifest() {
+    checkout="$1"
+    output="$2"
+    dirty_status="$(git -C "$checkout" status --porcelain --untracked-files=all -- \
+      apps/agent-platform/.dockerignore \
+      apps/agent-platform/README.md \
+      apps/agent-platform/pyproject.toml \
+      apps/agent-platform/uv.lock \
+      apps/agent-platform/alembic.ini \
+      apps/agent-platform/migrations \
+      apps/agent-platform/prompts \
+      apps/agent-platform/evals \
+      apps/agent-platform/policies \
+      apps/agent-platform/deploy/docker \
+      apps/agent-platform/src)"
+    if [ -n "$dirty_status" ]; then
+      echo "runtime/build checkout is dirty: $checkout" >&2
+      printf '%s\\n' "$dirty_status" >&2
+      exit 78
+    fi
+    git -C "$checkout" ls-files -s -- \
+      apps/agent-platform/.dockerignore \
+      apps/agent-platform/README.md \
+      apps/agent-platform/pyproject.toml \
+      apps/agent-platform/uv.lock \
+      apps/agent-platform/alembic.ini \
+      apps/agent-platform/migrations \
+      apps/agent-platform/prompts \
+      apps/agent-platform/evals \
+      apps/agent-platform/policies \
+      apps/agent-platform/deploy/docker \
+      apps/agent-platform/src |
+      awk '
+        {
+          tab = index($0, "\\t");
+          metadata = substr($0, 1, tab - 1);
+          path = substr($0, tab + 1);
+          print path "\\t" metadata;
+        }
+      ' |
+      LC_ALL=C sort > "$output"
+  }
+
+  write_runtime_manifest "$previous_release" "$previous_runtime_manifest"
+  write_runtime_manifest "$release" "$new_runtime_manifest"
+  awk -F '\\t' '
+    NR == FNR {
+      previous[$1] = $2;
+      next;
+    }
+    {
+      current[$1] = $2;
+      if (!($1 in previous) || previous[$1] != $2) {
+        changed[$1] = 1;
+      }
+    }
+    END {
+      for (path in previous) {
+        if (!(path in current)) {
+          changed[path] = 1;
+        }
+      }
+      for (path in changed) {
+        print path;
+      }
+    }
+  ' "$previous_runtime_manifest" "$new_runtime_manifest" |
+    LC_ALL=C sort > "$runtime_changed_paths"
+
+  app_entrypoint_path="apps/agent-platform/src/agent_platform/api/app.py"
+  if grep -Fxq "$app_entrypoint_path" "$runtime_changed_paths"; then
+    previous_app_blob="$(awk -F '\\t' -v expected_path="$app_entrypoint_path" '
+      $1 == expected_path {
+        split($2, metadata, " ");
+        print metadata[2];
+      }
+    ' "$previous_runtime_manifest")"
+    new_app_blob="$(awk -F '\\t' -v expected_path="$app_entrypoint_path" '
+      $1 == expected_path {
+        split($2, metadata, " ");
+        print metadata[2];
+      }
+    ' "$new_runtime_manifest")"
+    if [ "$previous_app_blob" != "f65d0510f45f2de2c95ca303123170d19c98086c" ] ||
+      [ "$new_app_blob" != "052811a887142bccef02b089331fd34788bf6f4c" ]; then
+      echo "app.py upgrade blob gate failed: previous=$previous_app_blob new=$new_app_blob path=$app_entrypoint_path" >&2
+      exit 78
+    fi
+  fi
+
+  if ! awk '
+    { sub(/\\r$/, ""); }
+    $0 == "apps/agent-platform/src/agent_platform/api/app.py" { next; }
+    $0 == "apps/agent-platform/src/agent_platform/api/frontend_assets.py" { next; }
+    index($0, "apps/agent-platform/src/agent_platform/api/frontend/") == 1 { next; }
+    {
+      print "incompatible runtime/build input changed: " $0 > "/dev/stderr";
+      incompatible = 1;
+    }
+    END {
+      if (incompatible) {
+        exit 46;
+      }
+    }
+  ' "$runtime_changed_paths"; then
+    echo "single-node upgrade refused: only the Agent Platform frontend surface may differ" >&2
+    exit 78
+  fi
+  cleanup_runtime_compatibility
+  trap - EXIT
+  compatibility_temp_dir=""
 fi
 {
   printf 'AGENT_PLATFORM_IMAGE=%s\\n' "$image"
@@ -336,6 +600,158 @@ compose() {
     -f "$base_compose" \\
     -f "$override_compose" \\
     "$@"
+}
+
+previous_compose() {
+  if [ "$upgrade_required" != "1" ]; then
+    echo "previous compose requested outside a frontend-only upgrade" >&2
+    return 78
+  fi
+  docker compose \\
+    --env-file "$secret_env_file" \\
+    --env-file "$previous_release_env_file" \\
+    --profile local \\
+    -f "$previous_base_compose" \\
+    -f "$previous_override_compose" \\
+    "$@"
+}
+
+backup=""
+expected_nginx_block=""
+legacy_nginx_block=""
+actual_nginx_block=""
+unmanaged_nginx_config=""
+nginx_tmp=""
+public_validation_body=""
+public_validation_headers=""
+current_switch_temp_dir=""
+current_switch_candidate=""
+rollback_required=0
+
+cleanup_deployment_temporaries() {
+  for temporary_file in \
+    "$expected_nginx_block" \
+    "$legacy_nginx_block" \
+    "$actual_nginx_block" \
+    "$unmanaged_nginx_config" \
+    "$nginx_tmp" \
+    "$public_validation_body" \
+    "$public_validation_headers" \
+    "$current_switch_candidate"; do
+    if [ -n "$temporary_file" ]; then
+      rm -f -- "$temporary_file"
+    fi
+  done
+  if [ -n "$current_switch_temp_dir" ]; then
+    rmdir -- "$current_switch_temp_dir" 2>/dev/null || true
+  fi
+}
+
+switch_current_release() {
+  target_release="$1"
+  if ! current_switch_temp_dir="$(mktemp -d "$release_root/.current-switch.XXXXXX")"; then
+    echo "failed to create current switch temp directory" >&2
+    return 78
+  fi
+  current_switch_candidate="$current_switch_temp_dir/current"
+  if ! ln -s -- "$target_release" "$current_switch_candidate"; then
+    echo "failed to create current switch candidate for $target_release" >&2
+    return 78
+  fi
+  if ! mv -Tf -- "$current_switch_candidate" "$current"; then
+    echo "failed to atomically switch current to $target_release" >&2
+    return 78
+  fi
+  current_switch_candidate=""
+  if ! rmdir -- "$current_switch_temp_dir"; then
+    echo "failed to remove current switch temp directory: $current_switch_temp_dir" >&2
+    return 78
+  fi
+  current_switch_temp_dir=""
+  return 0
+}
+deployment_exit_handler() {
+  deployment_exit_code="$?"
+  trap - EXIT
+  cleanup_deployment_temporaries || true
+  if [ "$deployment_exit_code" = "0" ] || [ "$rollback_required" != "1" ]; then
+    exit "$deployment_exit_code"
+  fi
+
+  set +e
+  echo "frontend-only deployment failed; restoring previous release $previous_release" >&2
+  rollback_failed=0
+  if [ -n "$backup" ] && [ -f "$backup" ]; then
+    cp "$backup" "$nginx_config"
+    if nginx -t; then
+      nginx -s reload || rollback_failed=1
+    else
+      echo "restored Nginx backup failed validation: $backup" >&2
+      rollback_failed=1
+    fi
+  fi
+  switch_current_release "$previous_release" || rollback_failed=1
+  previous_compose stop agent-api agent-worker commit-worker outbox-worker retention-worker >/dev/null 2>&1 || true
+  for previous_service in agent-api agent-worker commit-worker outbox-worker retention-worker; do
+    if ! previous_compose up -d --no-build --no-deps --force-recreate "$previous_service"; then
+      echo "failed to restart previous service: $previous_service" >&2
+      rollback_failed=1
+    fi
+  done
+
+  rollback_health_verified=0
+  for rollback_attempt in $(seq 1 60); do
+    if rollback_health="$(curl -fsS --connect-timeout 2 --max-time 5 "$local_url/health" 2>/dev/null)" &&
+      grep -Fq '"release_git_sha":"'"$previous_git_sha"'"' <<<"$rollback_health" &&
+      grep -Fq '"release_image_digest":"'"$previous_image_digest"'"' <<<"$rollback_health"; then
+      rollback_health_verified=1
+      break
+    fi
+    sleep 2
+  done
+  if [ "$rollback_health_verified" != "1" ]; then
+    echo "previous release health identity did not recover: git=$previous_git_sha digest=$previous_image_digest" >&2
+    rollback_failed=1
+  fi
+
+  rollback_workers_verified=0
+  for rollback_worker_attempt in $(seq 1 60); do
+    rollback_worker_states_ready=1
+    for previous_worker in agent-worker commit-worker outbox-worker; do
+      previous_worker_container="$(previous_compose ps --all -q "$previous_worker" 2>/dev/null)"
+      if [ -z "$previous_worker_container" ] ||
+        [ "$(docker inspect --format '{{.State.Status}}' "$previous_worker_container" 2>/dev/null)" != "running" ] ||
+        [ "$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$previous_worker_container" 2>/dev/null)" != "healthy" ]; then
+        rollback_worker_states_ready=0
+      fi
+    done
+    previous_retention_container="$(previous_compose ps --all -q retention-worker 2>/dev/null)"
+    if [ -z "$previous_retention_container" ] ||
+      [ "$(docker inspect --format '{{.State.Status}}' "$previous_retention_container" 2>/dev/null)" != "running" ]; then
+      rollback_worker_states_ready=0
+    fi
+    if [ "$rollback_worker_states_ready" = "1" ]; then
+      rollback_workers_verified=1
+      break
+    fi
+    sleep 2
+  done
+  if [ "$rollback_workers_verified" != "1" ]; then
+    echo "previous release workers did not recover healthy/running states" >&2
+    previous_compose ps --all >&2 || true
+    rollback_failed=1
+  fi
+  if [ "$(readlink -f "$current" 2>/dev/null)" != "$previous_release" ]; then
+    echo "rollback failed to preserve current at $previous_release" >&2
+    rollback_failed=1
+  fi
+  cleanup_deployment_temporaries
+  if [ "$rollback_failed" != "0" ]; then
+    echo "frontend-only deployment rollback failed" >&2
+    exit 83
+  fi
+  echo "frontend-only deployment rollback restored git=$previous_git_sha digest=$previous_image_digest" >&2
+  exit "$deployment_exit_code"
 }
 
 container_id_for() {
@@ -446,10 +862,15 @@ wait_for_successful_job() {
 }
 
 compose config >/dev/null
+if [ "$upgrade_required" = "1" ]; then
+  previous_compose config >/dev/null
+fi
 compose pull postgres redis temporal minio minio-init opa
 require_free_disk post_dependency_pull 1000000000
 startup_timeout_seconds=720
 startup_deadline_epoch=$(( $(date +%s) + startup_timeout_seconds ))
+rollback_required="$upgrade_required"
+trap deployment_exit_handler EXIT
 compose stop agent-api agent-worker commit-worker outbox-worker retention-worker
 compose rm -f agent-api agent-worker commit-worker outbox-worker retention-worker
 compose up -d --no-build \\
@@ -551,12 +972,70 @@ fi
 nginx_begin_marker="# BEGIN managed Agent Platform single-node $base_path"
 nginx_end_marker="# END managed Agent Platform single-node $base_path"
 expected_nginx_block="$(mktemp)"
+legacy_nginx_block="$(mktemp)"
 actual_nginx_block="$(mktemp)"
 unmanaged_nginx_config="$(mktemp)"
+nginx_tmp=""
 cleanup_nginx_validation() {
-  rm -f -- "$expected_nginx_block" "$actual_nginx_block" "$unmanaged_nginx_config"
+  rm -f -- \
+    "$expected_nginx_block" \
+    "$legacy_nginx_block" \
+    "$actual_nginx_block" \
+    "$unmanaged_nginx_config"
+  if [ -n "$nginx_tmp" ]; then
+    rm -f -- "$nginx_tmp"
+  fi
 }
-trap cleanup_nginx_validation EXIT
+awk -v base_path="$base_path" -v port="$port" '
+  BEGIN {
+    print "    # BEGIN managed Agent Platform single-node " base_path;
+    print "    location = " base_path " {";
+    print "        return 301 " base_path "/;";
+    print "    }";
+    print "";
+    print "    location = " base_path "/ {";
+    print "        proxy_pass http://127.0.0.1:" port "/;";
+    print "        proxy_set_header Host $host;";
+    print "        proxy_set_header X-Real-IP $remote_addr;";
+    print "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;";
+    print "        proxy_set_header X-Forwarded-Proto $scheme;";
+    print "    }";
+    print "";
+    print "    location = " base_path "/health {";
+    print "        proxy_pass http://127.0.0.1:" port "/health;";
+    print "        proxy_set_header Host $host;";
+    print "        proxy_set_header X-Forwarded-Proto $scheme;";
+    print "    }";
+    print "";
+    print "    location = " base_path "/ready {";
+    print "        proxy_pass http://127.0.0.1:" port "/ready;";
+    print "        proxy_set_header Host $host;";
+    print "        proxy_set_header X-Forwarded-Proto $scheme;";
+    print "    }";
+    print "";
+    print "    location = " base_path "/assets/app.css {";
+    print "        proxy_pass http://127.0.0.1:" port "/assets/app.css;";
+    print "        proxy_set_header Host $host;";
+    print "        proxy_set_header X-Real-IP $remote_addr;";
+    print "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;";
+    print "        proxy_set_header X-Forwarded-Proto $scheme;";
+    print "    }";
+    print "";
+    print "    location = " base_path "/assets/app.js {";
+    print "        proxy_pass http://127.0.0.1:" port "/assets/app.js;";
+    print "        proxy_set_header Host $host;";
+    print "        proxy_set_header X-Real-IP $remote_addr;";
+    print "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;";
+    print "        proxy_set_header X-Forwarded-Proto $scheme;";
+    print "    }";
+    print "";
+    print "    location ^~ " base_path "/ {";
+    print "        return 404;";
+    print "    }";
+    print "    # END managed Agent Platform single-node " base_path;
+  }
+' > "$expected_nginx_block"
+
 awk -v base_path="$base_path" -v port="$port" '
   BEGIN {
     print "    # BEGIN managed Agent Platform single-node " base_path;
@@ -589,7 +1068,106 @@ awk -v base_path="$base_path" -v port="$port" '
     print "    }";
     print "    # END managed Agent Platform single-node " base_path;
   }
-' > "$expected_nginx_block"
+' > "$legacy_nginx_block"
+
+extract_managed_nginx_block() {
+  begin_count="$(grep -Fxc -- "    $nginx_begin_marker" "$nginx_config" || true)"
+  end_count="$(grep -Fxc -- "    $nginx_end_marker" "$nginx_config" || true)"
+  if [ "$begin_count" != "1" ] || [ "$end_count" != "1" ]; then
+    echo "Agent Platform Nginx managed block markers are not unique" >&2
+    exit 80
+  fi
+  awk -v begin_marker="$nginx_begin_marker" -v end_marker="$nginx_end_marker" '
+    index($0, begin_marker) {
+      capture = 1;
+    }
+    capture {
+      print;
+    }
+    capture && index($0, end_marker) {
+      found = 1;
+      exit;
+    }
+    END {
+      if (!found) {
+        exit 43;
+      }
+    }
+  ' "$nginx_config" > "$actual_nginx_block"
+}
+
+assert_managed_nginx_domain() {
+  awk -v begin_marker="$nginx_begin_marker" -v domain="$domain" '
+    function brace_delta(line, copy, opens, closes) {
+      copy = line;
+      opens = gsub(/\\{/, "", copy);
+      copy = line;
+      closes = gsub(/\\}/, "", copy);
+      return opens - closes;
+    }
+    /^[[:space:]]*server[[:space:]]*\\{/ {
+      in_server = 1;
+      server_depth = 0;
+      target_server = 0;
+    }
+    in_server && $1 == "server_name" {
+      for (field_index = 2; field_index <= NF; field_index++) {
+        candidate = $field_index;
+        sub(/;$/, "", candidate);
+        if (candidate == domain) {
+          target_server = 1;
+        }
+      }
+    }
+    index($0, begin_marker) {
+      marker_count++;
+      if (!in_server || !target_server) {
+        wrong_server = 1;
+      }
+    }
+    in_server {
+      server_depth += brace_delta($0);
+      if (server_depth == 0) {
+        in_server = 0;
+        target_server = 0;
+      }
+    }
+    END {
+      if (marker_count != 1 || wrong_server) {
+        exit 44;
+      }
+    }
+  ' "$nginx_config" || {
+    echo "Agent Platform Nginx managed block is outside the exact domain server" >&2
+    exit 80
+  }
+}
+
+assert_no_unmanaged_nginx_routes() {
+  awk -v begin_marker="$nginx_begin_marker" -v end_marker="$nginx_end_marker" '
+    index($0, begin_marker) {
+      managed = 1;
+      next;
+    }
+    managed && index($0, end_marker) {
+      managed = 0;
+      next;
+    }
+    !managed {
+      print;
+    }
+  ' "$nginx_config" > "$unmanaged_nginx_config"
+  if grep -Fq -- "$base_path" "$unmanaged_nginx_config"; then
+    echo "refusing Agent Platform Nginx routes outside the managed block" >&2
+    exit 80
+  fi
+}
+
+validate_managed_nginx_routes() {
+  extract_managed_nginx_block
+  assert_managed_nginx_domain
+  assert_no_unmanaged_nginx_routes
+}
 
 backup=""
 if ! grep -Fq -- "$nginx_begin_marker" "$nginx_config"; then
@@ -599,7 +1177,7 @@ if ! grep -Fq -- "$nginx_begin_marker" "$nginx_config"; then
   fi
   backup="$nginx_config.bak.agent-platform-$(date +%Y%m%d%H%M%S)"
   cp "$nginx_config" "$backup"
-  tmp="$(mktemp)"
+  nginx_tmp="$(mktemp "$nginx_config.tmp.agent-platform.XXXXXX")"
   awk -v block_file="$expected_nginx_block" -v domain="$domain" '
     function brace_delta(line, copy, opens, closes) {
       copy = line;
@@ -644,8 +1222,56 @@ if ! grep -Fq -- "$nginx_begin_marker" "$nginx_config"; then
         exit 42;
       }
     }
-  ' "$nginx_config" > "$tmp"
-  mv "$tmp" "$nginx_config"
+  ' "$nginx_config" > "$nginx_tmp"
+  mv "$nginx_tmp" "$nginx_config"
+  nginx_tmp=""
+else
+  validate_managed_nginx_routes
+  if cmp -s "$expected_nginx_block" "$actual_nginx_block"; then
+    :
+  elif cmp -s "$legacy_nginx_block" "$actual_nginx_block"; then
+    backup="$nginx_config.bak.agent-platform-$(date +%Y%m%d%H%M%S)"
+    cp "$nginx_config" "$backup"
+    nginx_tmp="$(mktemp "$nginx_config.tmp.agent-platform.XXXXXX")"
+    if ! awk \
+      -v block_file="$expected_nginx_block" \
+      -v begin_marker="$nginx_begin_marker" \
+      -v end_marker="$nginx_end_marker" '
+        index($0, begin_marker) {
+          replaced++;
+          managed = 1;
+          while ((getline line < block_file) > 0) {
+            print line;
+          }
+          close(block_file);
+          next;
+        }
+        managed && index($0, end_marker) {
+          managed = 0;
+          found_end++;
+          next;
+        }
+        !managed {
+          print;
+        }
+        END {
+          if (replaced != 1 || found_end != 1 || managed) {
+            exit 45;
+          }
+        }
+      ' "$nginx_config" > "$nginx_tmp"; then
+      rm -f -- "$nginx_tmp"
+      nginx_tmp=""
+      echo "failed to replace the exact legacy Agent Platform Nginx managed block" >&2
+      exit 80
+    fi
+    mv "$nginx_tmp" "$nginx_config"
+    nginx_tmp=""
+  else
+    echo "Agent Platform Nginx managed block differs from the supported templates" >&2
+    diff -u "$expected_nginx_block" "$actual_nginx_block" >&2 || true
+    exit 80
+  fi
 fi
 if ! nginx -t; then
   if [ -n "$backup" ]; then
@@ -654,97 +1280,13 @@ if ! nginx -t; then
   fi
   exit 75
 fi
-begin_count="$(grep -Fxc -- "    $nginx_begin_marker" "$nginx_config" || true)"
-end_count="$(grep -Fxc -- "    $nginx_end_marker" "$nginx_config" || true)"
-if [ "$begin_count" != "1" ] || [ "$end_count" != "1" ]; then
-  echo "Agent Platform Nginx managed block markers are not unique" >&2
-  exit 80
-fi
-awk -v begin_marker="$nginx_begin_marker" -v end_marker="$nginx_end_marker" '
-  index($0, begin_marker) {
-    capture = 1;
-  }
-  capture {
-    print;
-  }
-  capture && index($0, end_marker) {
-    found = 1;
-    exit;
-  }
-  END {
-    if (!found) {
-      exit 43;
-    }
-  }
-' "$nginx_config" > "$actual_nginx_block"
+validate_managed_nginx_routes
 if ! cmp -s "$expected_nginx_block" "$actual_nginx_block"; then
   echo "Agent Platform Nginx managed block differs from the fail-closed template" >&2
   diff -u "$expected_nginx_block" "$actual_nginx_block" >&2 || true
   exit 80
 fi
-awk -v begin_marker="$nginx_begin_marker" -v domain="$domain" '
-  function brace_delta(line, copy, opens, closes) {
-    copy = line;
-    opens = gsub(/\\{/, "", copy);
-    copy = line;
-    closes = gsub(/\\}/, "", copy);
-    return opens - closes;
-  }
-  /^[[:space:]]*server[[:space:]]*\\{/ {
-    in_server = 1;
-    server_depth = 0;
-    target_server = 0;
-  }
-  in_server && $1 == "server_name" {
-    for (field_index = 2; field_index <= NF; field_index++) {
-      candidate = $field_index;
-      sub(/;$/, "", candidate);
-      if (candidate == domain) {
-        target_server = 1;
-      }
-    }
-  }
-  index($0, begin_marker) {
-    marker_count++;
-    if (!in_server || !target_server) {
-      wrong_server = 1;
-    }
-  }
-  in_server {
-    server_depth += brace_delta($0);
-    if (server_depth == 0) {
-      in_server = 0;
-      target_server = 0;
-    }
-  }
-  END {
-    if (marker_count != 1 || wrong_server) {
-      exit 44;
-    }
-  }
-' "$nginx_config" || {
-  echo "Agent Platform Nginx managed block is outside the exact domain server" >&2
-  exit 80
-}
-awk -v begin_marker="$nginx_begin_marker" -v end_marker="$nginx_end_marker" '
-  index($0, begin_marker) {
-    managed = 1;
-    next;
-  }
-  managed && index($0, end_marker) {
-    managed = 0;
-    next;
-  }
-  !managed {
-    print;
-  }
-' "$nginx_config" > "$unmanaged_nginx_config"
-if grep -Fq -- "$base_path" "$unmanaged_nginx_config"; then
-  echo "refusing Agent Platform Nginx routes outside the managed block" >&2
-  exit 80
-fi
 cleanup_nginx_validation
-trap - EXIT
 nginx -s reload
 
 public_health=""
@@ -799,7 +1341,138 @@ if [ "$public_identity_ready" != "1" ]; then
   fi
   exit 81
 fi
-public_denied_code="$(curl --silent --show-error --output /dev/null \
+public_validation_body="$(mktemp)"
+public_validation_headers="$(mktemp)"
+cleanup_public_validation() {
+  rm -f -- "$public_validation_body" "$public_validation_headers"
+}
+
+if ! public_root_meta="$(curl --silent --show-error \
+  --connect-timeout 5 \
+  --max-time 15 \
+  --dump-header "$public_validation_headers" \
+  --output "$public_validation_body" \
+  --write-out '%{http_code} %{content_type}' \
+  "$public_url")"; then
+  echo "failed to fetch the public Agent Platform frontend HTML" >&2
+  exit 81
+fi
+read -r public_root_code public_root_content_type <<<"$public_root_meta"
+if [ "$public_root_code" != "200" ]; then
+  cat "$public_validation_body" >&2
+  echo "expected public Agent Platform frontend HTTP 200, got $public_root_code" >&2
+  exit 81
+fi
+case "$public_root_content_type" in
+  text/html*) ;;
+  *)
+    echo "expected public Agent Platform frontend content-type text/html, got $public_root_content_type" >&2
+    exit 81
+    ;;
+esac
+if ! grep -Fq 'data-agent-platform-shell="v1"' "$public_validation_body"; then
+  cat "$public_validation_body" >&2
+  echo "expected public Agent Platform frontend HTML marker data-agent-platform-shell=v1" >&2
+  exit 81
+fi
+
+read_public_response_header() {
+  expected_header_name="$1"
+  awk -v expected_name="$expected_header_name" '
+    {
+      line = $0;
+      sub(/\\r$/, "", line);
+      separator = index(line, ":");
+      if (separator == 0) {
+        next;
+      }
+      name = substr(line, 1, separator - 1);
+      if (tolower(name) == tolower(expected_name)) {
+        matches++;
+        value = substr(line, separator + 1);
+        sub(/^[[:space:]]+/, "", value);
+        sub(/[[:space:]]+$/, "", value);
+      }
+    }
+    END {
+      if (matches != 1 || value == "") {
+        exit 48;
+      }
+      print value;
+    }
+  ' "$public_validation_headers"
+}
+
+assert_public_header_exact() {
+  expected_header_name="$1"
+  expected_header_value="$2"
+  if ! actual_header_value="$(read_public_response_header "$expected_header_name")"; then
+    echo "expected one public Agent Platform header: $expected_header_name" >&2
+    exit 81
+  fi
+  actual_header_lower="$(printf '%s' "$actual_header_value" | tr '[:upper:]' '[:lower:]')"
+  expected_header_lower="$(printf '%s' "$expected_header_value" | tr '[:upper:]' '[:lower:]')"
+  if [ "$actual_header_lower" != "$expected_header_lower" ]; then
+    echo "expected public Agent Platform header $expected_header_name=$expected_header_value, got $actual_header_value" >&2
+    exit 81
+  fi
+}
+
+if ! public_csp="$(read_public_response_header Content-Security-Policy)"; then
+  echo "expected one public Agent Platform Content-Security-Policy header" >&2
+  exit 81
+fi
+for required_csp_directive in \
+  "default-src 'none'" \
+  "script-src 'self'" \
+  "style-src 'self'" \
+  "connect-src 'self'"; do
+  case "$public_csp" in
+    *"$required_csp_directive"*) ;;
+    *)
+      echo "public Agent Platform CSP omitted $required_csp_directive: $public_csp" >&2
+      exit 81
+      ;;
+  esac
+done
+assert_public_header_exact X-Frame-Options DENY
+assert_public_header_exact X-Content-Type-Options nosniff
+assert_public_header_exact Referrer-Policy no-referrer
+assert_public_header_exact Cache-Control no-store
+
+assert_public_frontend_asset() {
+  asset_path="$1"
+  expected_content_type="$2"
+  asset_meta=""
+  if ! asset_meta="$(curl --silent --show-error \
+    --connect-timeout 5 \
+    --max-time 15 \
+    --output /dev/null \
+    --write-out '%{http_code} %{content_type}' \
+    "$public_url$asset_path")"; then
+    echo "failed to fetch public Agent Platform frontend asset $asset_path" >&2
+    exit 81
+  fi
+  read -r asset_code asset_content_type <<<"$asset_meta"
+  if [ "$asset_code" != "200" ]; then
+    echo "expected public Agent Platform asset $asset_path HTTP 200, got $asset_code" >&2
+    exit 81
+  fi
+  case "$asset_content_type" in
+    "$expected_content_type"*) ;;
+    *)
+      echo "expected public Agent Platform asset $asset_path content-type $expected_content_type, got $asset_content_type" >&2
+      exit 81
+      ;;
+  esac
+}
+assert_public_frontend_asset "assets/app.css" "text/css"
+assert_public_frontend_asset "assets/app.js" "application/javascript"
+
+public_denied_code="$(curl --silent --show-error \
+  --connect-timeout 5 \
+  --max-time 15 \
+  --output /dev/null \
   --write-out '%{http_code}' \
   --header 'X-Agent-Roles: admin' \
   "$public_url""v1/runs")"
@@ -807,20 +1480,36 @@ if [ "$public_denied_code" != "404" ]; then
   echo "expected public Agent Platform API denial HTTP 404, got $public_denied_code" >&2
   exit 81
 fi
-curl -fsS "$public_url" >/dev/null
-public_ready_body="$(mktemp)"
-public_ready_code="$(curl -sS -o "$public_ready_body" -w '%{http_code}' "$public_url"ready)"
+for public_denied_path in v1/models openapi.json docs redoc metrics; do
+  public_denied_code="$(curl --silent --show-error \
+    --connect-timeout 5 \
+    --max-time 15 \
+    --output /dev/null \
+    --write-out '%{http_code}' \
+    "$public_url$public_denied_path")"
+  if [ "$public_denied_code" != "404" ]; then
+    echo "expected public Agent Platform denial for $public_denied_path HTTP 404, got $public_denied_code" >&2
+    exit 81
+  fi
+done
+
+public_ready_code="$(curl --silent --show-error \
+  --connect-timeout 5 \
+  --max-time 15 \
+  --output "$public_validation_body" \
+  --write-out '%{http_code}' \
+  "$public_url"ready)"
 if [ "$public_ready_code" != "503" ]; then
-  cat "$public_ready_body" >&2
+  cat "$public_validation_body" >&2
   echo "expected constrained public readiness HTTP 503, got $public_ready_code" >&2
   exit 77
 fi
-if ! grep -Fq '"artifact_malware_scanner":"error:policy-fail-closed:structural-only"' "$public_ready_body"; then
-  cat "$public_ready_body" >&2
+if ! grep -Fq '"artifact_malware_scanner":"error:policy-fail-closed:structural-only"' "$public_validation_body"; then
+  cat "$public_validation_body" >&2
   echo "public readiness omitted the expected structural-only malware scanner block" >&2
   exit 77
 fi
-rm -f "$public_ready_body"
+cleanup_public_validation
 
 if ! all_required_services_ready; then
   compose ps --all
@@ -828,7 +1517,23 @@ if ! all_required_services_ready; then
   echo "single-node required service state changed before release switch" >&2
   exit 82
 fi
-ln -sfn "$release" "$current"
+if [ -n "$previous_release" ]; then
+  if [ "$(readlink -f "$current" 2>/dev/null)" != "$previous_release" ]; then
+    echo "current changed before the locked release switch: expected $previous_release" >&2
+    exit 84
+  fi
+elif [ -e "$current" ] || [ -L "$current" ]; then
+  echo "current appeared before the locked first release switch" >&2
+  exit 84
+fi
+switch_current_release "$release"
+if [ "$(readlink -f "$current")" != "$requested_release" ]; then
+  echo "current release switch did not converge to $requested_release" >&2
+  exit 78
+fi
+rollback_required=0
+trap - EXIT
+cleanup_deployment_temporaries
 compose ps --all
 echo "deployment_status=single-node-deployed-with-known-readiness-block"
 echo "deployed_release=$release"
